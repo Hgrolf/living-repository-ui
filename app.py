@@ -220,7 +220,7 @@ def signup():
     conn.close()
 
     # Log signup event
-    log_event(user_id, None, action="create", object_type="user", object_id=user_id, object_name=name)
+    log_event(user_id, None, action="signup", object_id=user_id, object_name=name)
 
     return "Account created successfully! <a href='/login'>Login here</a>"
 
@@ -323,10 +323,9 @@ def project_detail(project_id):
             # Log project deletion
             log_event(
                 user_id=user_id,
-                project_id=project_id,
+                project_id=None,
                 action="delete",
                 object_type="project",
-                object_id=project_id,
                 object_name=project_title
             )
 
@@ -871,7 +870,7 @@ def send_message(project_id, chat_id):
 
   
 
-        Project Documents:
+        Project Documents: 
 
         {lvl3_context}
 
