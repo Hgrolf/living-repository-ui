@@ -792,105 +792,212 @@ def send_message(project_id, chat_id):
     """, (content_id_user, chat_id, message, datetime.datetime.now(datetime.timezone.utc)))
     conn.commit()
 
-    # --- Build AI prompt from project documents ---
+    # --- Get data from project documents for AI search ---
 
     cur.execute("""
-        SELECT 
-            d.title, 
-            LEFT(d.ocr_text, 1000) AS ocr_text,
-            STRING_AGG(t.label, ',') AS tags
-        FROM Document d
-        LEFT JOIN Document_Tag dt ON d.doc_id = dt.document_id
-        LEFT JOIN Tag t ON dt.tag_id = t.tag_id
-        JOIN Project_Document pd ON d.doc_id = pd.document_id
-        WHERE pd.project_id = ?
-        GROUP BY d.doc_id, d.title, d.ocr_text
-    """, (project_id,))
+    SELECT 
+        d.title, 
+        LEFT(d.ocr_text, 1000) AS ocr_text,
+        STRING_AGG(t.label, ',') AS tags,
+        pd.contextual_summary
+    FROM Document d
+    LEFT JOIN Document_Tag dt ON d.doc_id = dt.document_id
+    LEFT JOIN Tag t ON dt.tag_id = t.tag_id
+    JOIN Project_Document pd ON d.doc_id = pd.document_id
+    WHERE pd.project_id = ?
+    GROUP BY d.doc_id, d.title, d.ocr_text, pd.contextual_summary
+                    """, (project_id,))
     docs = dict_cursor(cur)  # your helper to convert rows to dict
 
-    context_parts = []
-    for d in docs:
-        tags_str = f" [tags: {d['tags']}]" if d['tags'] else ""
-        context_parts.append(f"Document: {d['title']}{tags_str}\n{d.get('ocr_text','')}")
 
-    lvl1_context = "\n\n".join(context_parts)
+# if there are not many douments in the project, dont use bulk searching
+    if len(docs) < 10:
+        info_parts = []
+
+        for d in docs:
+            tags_str = f" [tags: {d['tags']}]" if d['tags'] else ""
+            summary_str = f" Summary: {d['contextual_summary']}" if d['contextual_summary'] else ""
+
+            info_parts.append(f"Document: {d['title']}{tags_str}{summary_str}\n Text Raw: {d.get('ocr_text','')[:1000]}")
+            #info_parts.append(f"Document: {d['title']}")
+
+        context = "\n\n".join(info_parts)
+
+        try:
+
+            prompt = f"""
+
+            You are assisting a user with project documents.
+
+  
+
+            Project Documents:
+
+            {context}
+
+  
+
+            User Question: {message}
+
+            """
+
+            model = genai.GenerativeModel("gemini-2.5-flash-lite")
+
+            response = model.generate_content(prompt)
+
+            reply = response.text.strip()
+            #reply = str(info_parts)
+
+
+
+        except Exception as e:
+
+            print("Chat error:", e)
+
+            reply = "Sorry, I had trouble generating a response."
+
+    else:
+
+
+# level 1 search data prep: title and tag
+
+        context_parts = []
+        for d in docs:
+            tags_str = f" [tags: {d['tags']}]" if d['tags'] else ""
+            context_parts.append(f"Document: {d['title']}: {tags_str}")
+
+        lvl1_context = "\n\n".join(context_parts)
+
+
 
     # --- Generate AI response ---
-    try:
+        try:
 
-        prompt1 = f"""
+            prompt1 = f"""
 
-        Please return only a list of document titles that are NOT relevant to the user's question seperated by commas and nothing else.
+            Based on the title and tags of each document, please return only a list of document titles that are NOT relevant to the user's question seperated by commas and nothing else.
 
-        User Question: {message}
+            User Question: {message}
+
+            Project Documents:
+
+            {lvl1_context}
+
+            """
+
+            model = genai.GenerativeModel("gemini-2.5-flash-lite")
+
+            response = model.generate_content(prompt1)
+
+            lvl1_reply = response.text.strip()
+
+  
+  
+
+            lvl1_list = [name.strip() for name in lvl1_reply.split(',')]
+
+            deny_set = set(lvl1_list)
+
+        except Exception as e:
+
+            print("Chat error:", e)
+
+            reply = "Sorry, I had trouble generating a response."
+
+# level 2 search data prep: title and summary
+        lvl2_info_parts = []
+
+        for d in docs:
+
+            if d['title'] in deny_set:
+
+                continue
+
+            #lvl2_info_parts.append(f"Document: {d['title']} {d['summary']}")
+            summary_str = f" Summary: {d['contextual_summary']}" if d['contextual_summary'] else ""
+
+            lvl2_info_parts.append(f"Document: {d['title']}{summary_str}")
+
+        lvl2_context = "\n\n".join(lvl2_info_parts)
+
+        try:
+
+            prompt = f"""
+            Based on the title and summary of each document, please return only a list of document titles that are NOT relevant to the user's question seperated by commas and nothing else.
+
+  
+
+            Project Documents:
+
+            {lvl2_context}
+
+  
+
+            User Question: {message}
+
+            """
+
+            model = genai.GenerativeModel("gemini-2.5-flash-lite")
+
+            response = model.generate_content(prompt)
+
+            lvl2_reply = response.text.strip()
+
+        except Exception as e:
+
+            print("Chat error:", e)
+
+            lvl2_reply = "Sorry, I had trouble generating a response."
+    
+        deny_set.update(name.strip() for name in lvl2_reply.split(","))
+
+
+# level 3 search data prep: title and ocr text
+
+        lvl3_info_parts = []
+
+        for d in docs:
+
+            if d['title'] in deny_set:
+
+                continue
+
+            lvl3_info_parts.append(f"Document: {d['title']}\n{d.get('ocr_text','')[:1000]}")
+
+        lvl3_context = "\n\n".join(lvl3_info_parts)
+
+        try:
+
+            prompt = f"""
+
+            You are assisting a user with project documents.
+
+  
 
         Project Documents:
 
-        {lvl1_context}
-
-        """
-
-        model = genai.GenerativeModel("gemini-2.5-flash-lite")
-
-        response = model.generate_content(prompt1)
-
-        lvl1_reply = response.text.strip()
-
-  
-  
-
-        lvl1_list = [name.strip() for name in lvl1_reply.split(',')]
-
-        deny_set = set(lvl1_list)
-
-    except Exception as e:
-
-        print("Chat error:", e)
-
-        reply = "Sorry, I had trouble generating a response."
-
-
-    lvl3_info_parts = []
-
-    for d in docs:
-
-        if d['title'] in deny_set:
-
-            continue
-
-        lvl3_info_parts.append(f"Document: {d['title']}\n{d.get('ocr_text','')[:1000]}")
-
-    lvl3_context = "\n\n".join(lvl3_info_parts)
-
-    try:
-
-        prompt = f"""
-
-        You are assisting a user with project documents.
+            {lvl3_context}
 
   
 
-        Project Documents: 
+            User Question: {message}
 
-        {lvl3_context}
+            """
 
-  
+            model = genai.GenerativeModel("gemini-2.5-flash-lite")
 
-        User Question: {message}
+            response = model.generate_content(prompt)
 
-        """
+            reply = response.text.strip()
 
-        model = genai.GenerativeModel("gemini-2.5-flash-lite")
 
-        response = model.generate_content(prompt)
 
-        reply = response.text.strip()
 
-    except Exception as e:
+        except Exception as e:
 
-        print("Chat error:", e)
+            print("Chat error:", e)
 
-        reply = "Sorry, I had trouble generating a response."
+            reply = "Sorry, I had trouble generating a response."
 
     # --- Save AI response ---
     content_id_ai = str(uuid.uuid4())
