@@ -110,7 +110,7 @@
         <form id="uploadForm" enctype="multipart/form-data">
           <div id="dropzone" class="dropzone" tabindex="0">
             <input id="fileInput" name="file" type="file"
-              accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.tiff" hidden />
+             multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.tiff" hidden />
             <div class="dropzone-inner">
               <div class="drop-illustration">⬆</div>
               <div class="drop-title">Drag & drop file here</div>
@@ -204,7 +204,8 @@
     const filePicked = document.getElementById('filePicked');
     const uploadForm = document.getElementById('uploadForm');
     const dropzone = document.getElementById('dropzone');
-    
+    const docTitle = document.getElementById('docTitle');
+    let selectedFiles = [];
 
     document.getElementById('year').textContent = new Date().getFullYear();
 
@@ -218,6 +219,29 @@
       });
     }
 
+    //functions for when ingesting a file auto inputs the filename as the document title field
+
+    
+    function filenameToTitle(name) {
+      const noPath = name.split('\\').pop().split('/').pop();
+      const withoutExt = noPath.replace(/\.[^/.]+$/, '');
+    return withoutExt.replace(/[_-]+/g, ' ').trim();
+    }
+
+    function handleFiles(files) {
+      if (!files || files.length === 0) {
+        return;
+      }
+      const file = files[0];
+      const displayName = file.name;
+      filePicked.hidden = false;
+      filePicked.textContent = displayName;
+
+  if (!docTitle.value || docTitle.value.trim() === '') {
+    docTitle.value = filenameToTitle(displayName);
+  }
+}
+
     // Navigation
     document.getElementById('btnGoUpload').addEventListener('click', () => goToScreen('upload'));
     document.getElementById('backToDashboard').addEventListener('click', () => goToScreen('dashboard'));
@@ -229,6 +253,7 @@
     browseBtn.addEventListener('click', () => fileInput.click());
     fileInput.addEventListener('change', () => {
       if (fileInput.files.length > 0) {
+        handleFiles(fileInput.files);
         filePicked.hidden = false;
         filePicked.textContent = `Selected file: ${fileInput.files[0].name}`;
       } else { filePicked.hidden = true; }
@@ -616,38 +641,99 @@
       filePicked.textContent = `Selected file: ${file.name}`;
     }
 
-    // Global drag & drop guard
-    // Prevent the browser from opening the file when it's dropped on the page.
-    ['dragenter','dragover'].forEach(evt => {
-      dropzone?.addEventListener(evt, (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        dropzone.classList.add('dragover');
-      });
-    });
+// Global drag & drop guard
+// Prevent the browser from opening the file when it's dropped on the page.
+['dragenter','dragover'].forEach(evt => {
+  dropzone?.addEventListener(evt, (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dropzone.classList.add('dragover');
+  });
+});
 
-    ['dragleave','drop'].forEach(evt => {
-      dropzone?.addEventListener(evt, (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        dropzone.classList.remove('dragover');
-      });
-    });
 
-    dropzone?.addEventListener('drop', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      dropzone.classList.remove('dragover');
+// Drag & drop zone
+['dragenter','dragover'].forEach(evt => {
+  dropzone?.addEventListener(evt, (e) => {
+    e.preventDefault(); e.stopPropagation();
+    dropzone.classList.add('dragover');
+  });
+});
+['dragleave','drop'].forEach(evt => {
+  dropzone?.addEventListener(evt, (e) => {
+    e.preventDefault(); e.stopPropagation();
+    dropzone.classList.remove('dragover');
+  });
+});
 
-      const f = e.dataTransfer?.files?.[0];
-      if (!f) return;
-      const res = validateFile(f);
-      if (!res.ok) { alert(res.reason); return; }
-      const dt = new DataTransfer();
-      dt.items.add(f);
-      fileInput.files = dt.files;
-      setPicked(f);
-    });
+browseBtn?.addEventListener('click', () => fileInput.click());
+fileInput?.addEventListener('change', (e) => {
+  const files = Array.from(e.target.files || []);
+  selectedFiles = files;    
+  renderPicked(selectedFiles);
+  syncInput();
+});
+
+// multidrop
+dropzone?.addEventListener('drop', (e) => {
+  const files = Array.from(e.dataTransfer?.files || []).filter(f => f.size > 0);
+  if (!files.length) return;
+
+  const dt = new DataTransfer();
+  files.forEach(f => dt.items.add(f));
+  fileInput.files = dt.files;
+
+  selectedFiles = files;    
+  renderPicked(selectedFiles);
+  syncInput();
+});
+
+// Keep the hidden <input type="file"> in sync with selection
+function syncInput() {
+  const dt = new DataTransfer();
+  (selectedFiles || []).forEach(f => dt.items.add(f));
+  fileInput.files = dt.files;
+}
+
+// simple list of selected/dropped files with remove option
+function renderPicked(files){
+  if (Array.isArray(files)) selectedFiles = files;
+
+  if (!filePicked) return;
+  if (!selectedFiles || !selectedFiles.length) {
+    filePicked.hidden = true;
+    filePicked.textContent = '';
+    return;
+  }
+  filePicked.hidden = false;
+  filePicked.innerHTML = `
+    <div style="font-weight:600; margin-bottom:6px;">Selected ${selectedFiles.length} file(s)</div>
+    <ul class="file-list">
+      ${selectedFiles.map((f, i) => `
+        <li class="file-item">
+          <span class="file-name">${escapeHtml(f.name)}</span>
+          <button type="button" class="file-remove" data-index="${i}" aria-label="Remove">×</button>
+        </li>
+      `).join('')}
+    </ul>
+  `;
+}
+
+// Click x to remove a file from the selection
+filePicked?.addEventListener('click', (e) => {
+  const btn = e.target.closest('.file-remove');
+  if (!btn) return;
+  const idx = Number(btn.dataset.index);
+  if (Number.isNaN(idx)) return;
+  selectedFiles.splice(idx, 1);
+  renderPicked();   
+  syncInput();     
+});
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+
   </script>
 </body>
 
