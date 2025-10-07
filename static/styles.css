@@ -268,3 +268,14 @@ p { font-size:var(--body); margin:0 0 var(--space-4); }
   outline-offset: 2px;
   border-radius: 12px;
 }
+
+/* File list (for ingestion screen) */
+.file-list { margin:0; padding-left:18px; line-height:1.4; list-style: none; }
+.file-item { display:flex; align-items:center; gap:8px; }
+.file-name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.file-remove {
+  opacity: 0; transition: opacity .15s ease; cursor: pointer;
+  font-weight: 600; border: 0; background: transparent; padding: 2px 6px;
+}
+.file-item:hover .file-remove { opacity: 1; }
+.file-remove:hover { color: #ef4444; }
