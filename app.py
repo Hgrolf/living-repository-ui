@@ -603,6 +603,7 @@ def project_upload(project_id):
     filename = secure_filename(file.filename)
     path = os.path.join(UPLOAD_FOLDER, filename)
     file.save(path)
+    pytesseract.pytesseract.tesseract_cmd = r"C:\\Program Files\\Tesseract-OCR\\tesseract.exe"
 
     ext = filename.split(".")[-1].lower()
     if ext in ["pdf"]:
