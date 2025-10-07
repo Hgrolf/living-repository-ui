@@ -594,65 +594,85 @@ def project_upload(project_id):
     if "user_id" not in session:
         return jsonify({"error": "Not logged in"}), 401
 
-    file = request.files["file"]
-    title = request.form["title"]
-    description = request.form.get("description")
+    files = request.files.getlist("file")  # handles multiple files
+    titles = request.form.getlist("titles[]")  # new: per-file titles
+    description = request.form.get("description", "")
     privacy = request.form.get("privacy", "").strip().lower()
     user_id = session["user_id"]
 
-    filename = secure_filename(file.filename)
-    path = os.path.join(UPLOAD_FOLDER, filename)
-    file.save(path)
-    pytesseract.pytesseract.tesseract_cmd = r"C:\\Program Files\\Tesseract-OCR\\tesseract.exe"
+    results = []
 
-    ext = filename.split(".")[-1].lower()
-    if ext in ["pdf"]:
-        doc_type = "pdf"
-        ocr_text = extract_pdf_text(path)
-    elif ext in ["doc", "docx"]:
-        doc_type = "word"
-        ocr_text = extract_word_text(path)
-    elif ext in ["xls", "xlsx"]:
-        doc_type = "other"
-        ocr_text = extract_excel_text(path)
-    elif ext in ["jpg", "jpeg", "png", "tiff"]:
-        doc_type = "image"
-        ocr_text = pytesseract.image_to_string(Image.open(path))
-    else:
-        doc_type = "other"
-        ocr_text = ""
+    if not files or files[0].filename == "":
+        return jsonify({"error": "No files uploaded"}), 400
 
-    ocr_text = re.sub(r"\n{2,}", "\n", ocr_text).strip()
-    tags = generate_tags(ocr_text or description or title)
+    for i, file in enumerate(files):
+        filename = secure_filename(file.filename)
+        path = os.path.join(UPLOAD_FOLDER, filename)
+        file.save(path)
 
-    doc_id = str(uuid.uuid4())
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("""
-        INSERT INTO Document (doc_id, uploader_id, title, description, url, upload_date, type, ocr_text, privacy_level, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (doc_id, user_id, title, description, path, datetime.datetime.now(), doc_type, ocr_text, privacy, "pending"))
+        pytesseract.pytesseract.tesseract_cmd = r"C:\\Program Files\\Tesseract-OCR\\tesseract.exe"
 
-    cur.execute("INSERT INTO Project_Document (project_id, document_id) VALUES (?, ?)", (project_id, doc_id))
+        ext = filename.split(".")[-1].lower()
+        if ext in ["pdf"]:
+            doc_type = "pdf"
+            ocr_text = extract_pdf_text(path)
+        elif ext in ["doc", "docx"]:
+            doc_type = "word"
+            ocr_text = extract_word_text(path)
+        elif ext in ["xls", "xlsx"]:
+            doc_type = "other"
+            ocr_text = extract_excel_text(path)
+        elif ext in ["jpg", "jpeg", "png", "tiff"]:
+            doc_type = "image"
+            ocr_text = pytesseract.image_to_string(Image.open(path))
+        else:
+            doc_type = "other"
+            ocr_text = ""
 
-    for tag in tags:
-        tag_id = get_or_create_tag(cur, tag)
-        cur.execute("INSERT INTO Document_Tag (document_id, tag_id) VALUES (?, ?)", (doc_id, tag_id))
+        ocr_text = re.sub(r"\n{2,}", "\n", ocr_text).strip()
+        title = titles[i] if i < len(titles) else os.path.splitext(filename)[0]  # per-file title
+        tags = generate_tags(ocr_text or description or title or filename)
 
-    #log the event
-    log_event(
-    user_id=session["user_id"],
-    project_id=project_id,
-    action="create",
-    object_type="Document",
-    object_id=doc_id,
-    object_name=title)
+        doc_id = str(uuid.uuid4())
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO Document (doc_id, uploader_id, title, description, url, upload_date, type, ocr_text, privacy_level, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (doc_id, user_id, title, description, path, datetime.datetime.now(),
+              doc_type, ocr_text, privacy, "pending"))
 
-    conn.commit()
-    cur.close()
-    conn.close()
+        cur.execute("INSERT INTO Project_Document (project_id, document_id) VALUES (?, ?)",
+                    (project_id, doc_id))
 
-    return jsonify({"success": True, "doc_id": doc_id, "title": title, "tags": tags})
+        for tag in tags:
+            tag_id = get_or_create_tag(cur, tag)
+            cur.execute("INSERT INTO Document_Tag (document_id, tag_id) VALUES (?, ?)",
+                        (doc_id, tag_id))
+
+        # Log the event
+        log_event(
+            user_id=user_id,
+            project_id=project_id,
+            action="create",
+            object_type="Document",
+            object_id=doc_id,
+            object_name=title
+        )
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        results.append({
+            "doc_id": doc_id,
+            "title": title,
+            "tags": tags,
+            "type": doc_type
+        })
+
+    return jsonify({"success": True, "uploaded": results})
+
 
 @app.route("/project/<project_id>/document/<doc_id>", methods=["GET", "POST"])
 def document_detail(project_id, doc_id):

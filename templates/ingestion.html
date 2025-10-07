@@ -284,35 +284,81 @@
     }
     attachProcessButtons();
 
-    // AJAX Upload
-    uploadForm.addEventListener('submit', e => {
+    // Upload form - multi-file with titles and shared metadata
+    uploadForm.addEventListener('submit', async e => {
       e.preventDefault();
-      const formData = new FormData(uploadForm);
 
-      fetch(`/project/${PROJECT_ID}/upload`, { method: 'POST', body: formData })
-        .then(res => res.json())
-        .then (data => {
-          if (data.success) {
-            const article = document.createElement('article');
-            article.className = 'doc-card';
+      if (!selectedFiles || selectedFiles.length === 0) {
+        alert("Please select at least one file to upload.");
+        return;
+      }
+
+      const uploadBtn = uploadForm.querySelector('button[type="submit"]');
+      uploadBtn.disabled = true;
+      uploadBtn.textContent = "Uploading...";
+
+      const formData = new FormData();
+
+      // append each file
+      for (const file of selectedFiles) {
+        formData.append("file", file);
+      }
+
+      // append each corresponding title
+      const titleInputs = document.querySelectorAll('input[name="titles[]"]');
+      titleInputs.forEach(input => {
+        formData.append("titles[]", input.value);
+      });
+
+      // append the shared metadata
+      formData.append("description", document.getElementById("docDescription").value);
+      formData.append("privacy", document.getElementById("docPrivacy").value);
+
+      try {
+        const res = await fetch(`/project/${PROJECT_ID}/upload`, {
+          method: "POST",
+          body: formData
+        });
+
+        const data = await res.json();
+
+        if (data.error) {
+          alert("Upload failed: " + data.error);
+          return;
+        }
+
+        if (data.uploaded && data.uploaded.length) {
+          alert(`Uploaded ${data.uploaded.length} file(s) successfully!`);
+          data.uploaded.forEach(doc => {
+            const article = document.createElement("article");
+            article.className = "doc-card";
             article.innerHTML = `
-              <a href="/project/${PROJECT_ID}/document/${data.doc_id}" style="display:block; text-decoration:none; color:inherit;">
+              <a href="/project/${PROJECT_ID}/document/${doc.doc_id}" style="display:block; text-decoration:none; color:inherit;">
                 <div class="doc-row">
-                  <div class="doc-title">${data.title}</div>
+                  <div class="doc-title">${doc.title}</div>
                   <span class="badge badge-secondary">Pending</span>
                 </div>
-                ${data.description ? `<p class="text-sm muted" style="margin-top:6px;">${data.description}</p>` : ''}
+                ${doc.description ? `<p class="text-sm muted" style="margin-top:6px;">${doc.description}</p>` : ""}
               </a>
-              <button class="btn btn-sm btn-primary process-btn" data-doc-id="${data.doc_id}">Process</button>
+              <button class="btn btn-sm btn-primary process-btn" data-doc-id="${doc.doc_id}">Process</button>
             `;
             docList.prepend(article);
-            uploadForm.reset();
-            filePicked.hidden = true;
-            attachProcessButtons(); // bind the new button
-            alert('Document uploaded successfully!');
-            goToScreen('dashboard');
-          } else alert('Upload failed');
-        }).catch(console.error);
+          });
+        }
+
+        // Reset form & UI
+        selectedFiles = [];
+        renderPicked();
+        uploadForm.reset();
+        attachProcessButtons();
+        goToScreen("dashboard");
+      } catch (err) {
+        console.error(err);
+        alert("An error occurred during upload.");
+      } finally {
+        uploadBtn.disabled = false;
+        uploadBtn.textContent = "Upload";
+      }
     });
 
     // DARCIE ADDED CODE FROM HERE ONWARDS!!!!!!
@@ -695,8 +741,8 @@ function syncInput() {
   fileInput.files = dt.files;
 }
 
-// simple list of selected/dropped files with remove option
-function renderPicked(files){
+
+function renderPicked(files) {
   if (Array.isArray(files)) selectedFiles = files;
 
   if (!filePicked) return;
@@ -705,16 +751,21 @@ function renderPicked(files){
     filePicked.textContent = '';
     return;
   }
+
   filePicked.hidden = false;
   filePicked.innerHTML = `
     <div style="font-weight:600; margin-bottom:6px;">Selected ${selectedFiles.length} file(s)</div>
     <ul class="file-list">
-      ${selectedFiles.map((f, i) => `
-        <li class="file-item">
-          <span class="file-name">${escapeHtml(f.name)}</span>
-          <button type="button" class="file-remove" data-index="${i}" aria-label="Remove">×</button>
-        </li>
-      `).join('')}
+      ${selectedFiles.map((f, i) => {
+        const baseName = f.name.replace(/\.[^/.]+$/, ""); // remove extension
+        return `
+          <li class="file-item">
+            <span class="file-name">${escapeHtml(f.name)}</span>
+            <input type="text" name="titles[]" value="${escapeHtml(baseName)}" class="file-title-input" placeholder="Title">
+            <button type="button" class="file-remove" data-index="${i}" aria-label="Remove">×</button>
+          </li>
+        `;
+      }).join('')}
     </ul>
   `;
 }
