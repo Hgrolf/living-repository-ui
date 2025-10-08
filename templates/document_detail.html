@@ -29,12 +29,30 @@
     <p><b>Privacy:</b> {{ document.privacy_level }}</p>
   </div>
 
-  <!-- OCR Text -->
   {% if document.ocr_text %}
   <div class="doc-card" style="padding:var(--space-6); margin-bottom:var(--space-8);">
     <p><b>Extracted Text:</b></p>
-    <pre style="white-space:pre-wrap; word-wrap:break-word;">{{ document.ocr_text }}</pre>
+    <pre id="ocrDisplay" style="white-space:pre-wrap; word-wrap:break-word;">{{ document.ocr_text }}</pre>
+
+    <!-- Edit OCR Text Form -->
+    <form id="ocrEditForm" method="post" style="display:none; flex-direction:column; gap:8px;">
+      <textarea name="ocr_text" rows="10" style="width:100%;">{{ document.ocr_text }}</textarea>
+      <div style="display:flex; gap:8px;">
+        <button class="btn btn-primary" type="submit" name="save_ocr">Save</button>
+        <button class="btn btn-outline" type="button" onclick="toggleEdit(false)">Cancel</button>
+      </div>
+    </form>
+
+    <!-- Edit Button -->
+    <button class="btn btn-outline" id="editOcrBtn" type="button" onclick="toggleEdit(true)">Edit OCR Text</button>
   </div>
   {% endif %}
 
+  <script>
+  function toggleEdit(editing) {
+    document.getElementById('ocrDisplay').style.display = editing ? 'none' : 'block';
+    document.getElementById('editOcrBtn').style.display = editing ? 'none' : 'inline-block';
+    document.getElementById('ocrEditForm').style.display = editing ? 'flex' : 'none';
+  }
+  </script>
 </div>

@@ -22,7 +22,7 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.secret_key = "super-secret-key"  # change this in production!
 
 # Configure Google Gemini API
-genai.configure(api_key="AIzaSyAYH1bmWz4hI1s2rgFXvAR5ygtOmoXf4Cs")
+genai.configure(api_key="AIzaSyA9BylAcbMf2XC5r8QH9pEcxi77ZcvMkjM")
 model = genai.GenerativeModel("Gemini 2.5-Flash-Lite")
 
 # ------------------ Database Helper -----------------
@@ -685,16 +685,13 @@ def document_detail(project_id, doc_id):
 
     if request.method == "POST":
         if "delete" in request.form:
-            # Fetch document info for logging
             cur.execute("SELECT title FROM Document WHERE doc_id=?", (doc_id,))
             doc_row = cur.fetchone()
             doc_title = doc_row[0] if doc_row else None
 
-            # Delete document
             cur.execute("DELETE FROM Document WHERE doc_id=?", (doc_id,))
             conn.commit()
 
-            # Log the deletion
             log_event(
                 user_id=user_id,
                 project_id=project_id,
@@ -708,12 +705,28 @@ def document_detail(project_id, doc_id):
             conn.close()
             return redirect(url_for("project_detail", project_id=project_id))
 
-    # Get document info with uploader
+        elif "save_ocr" in request.form:
+            new_text = request.form.get("ocr_text", "")
+            cur.execute("UPDATE Document SET ocr_text=? WHERE doc_id=?", (new_text, doc_id))
+            conn.commit()
+
+            log_event(
+                user_id=user_id,
+                project_id=project_id,
+                action="update",
+                object_type="document",
+                object_id=doc_id,
+                object_name=doc_title
+            )
+
+            flash("OCR text updated successfully.", "success")
+
+    # Get document info again after possible update
     cur.execute("""
         SELECT d.doc_id, d.title, d.url, d.upload_date, d.type, d.privacy_level, d.ocr_text,
-            u.name as uploader_name,
-            pd.project_id,
-            p.title as project_title
+               u.name as uploader_name,
+               pd.project_id,
+               p.title as project_title
         FROM Document d
         LEFT JOIN [User] u ON d.uploader_id = u.user_id
         LEFT JOIN Project_Document pd ON d.doc_id = pd.document_id
@@ -1010,8 +1023,6 @@ def send_message(project_id, chat_id):
             response = model.generate_content(prompt)
 
             reply = response.text.strip()
-
-
 
 
         except Exception as e:

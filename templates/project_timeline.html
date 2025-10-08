@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <title>{{ project_title }} - Timeline</title>
@@ -19,7 +20,7 @@
       padding: 20px;
       background: #fff;
       border-radius: 12px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
     }
 
     h1.timeline-title {
@@ -27,7 +28,6 @@
       color: #333;
       margin-bottom: 12px;
     }
-
 
     .timeline-container {
       position: relative;
@@ -84,11 +84,140 @@
       display: none;
       font-size: 0.9em;
       color: #555;
-      box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
     }
 
     .timeline-item.event-open .event-card {
       display: block;
+    }
+
+    /* Filter Styles */
+    .filter-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin: 20px 0;
+    }
+
+    .filter-toggle-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      background: #1890ff;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.95em;
+    }
+
+    .filter-toggle-btn:hover {
+      background: #096dd9;
+    }
+
+    .filter-arrow {
+      display: inline-block;
+      transition: transform 0.3s ease;
+      font-size: 0.7em;
+      line-height: 1;
+    }
+
+    .filter-arrow.active {
+      transform: rotate(180deg);
+    }
+
+    .filter-badge {
+      background: #0050b3;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 0.85em;
+    }
+
+    .filter-panel {
+      display: none;
+      background: #f9f9f9;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+
+    .filter-panel.active {
+      display: block;
+    }
+
+    .filter-panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .filter-panel-title {
+      font-weight: 600;
+      color: #333;
+      font-size: 1.05em;
+    }
+
+    .clear-filters-btn {
+      background: none;
+      border: none;
+      color: #1890ff;
+      cursor: pointer;
+      font-size: 0.9em;
+      text-decoration: underline;
+    }
+
+    .filter-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-bottom: 12px;
+    }
+
+    .filter-field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .filter-label {
+      font-size: 0.9em;
+      font-weight: 500;
+      color: #555;
+    }
+
+    .filter-input,
+    .filter-select {
+      padding: 8px 12px;
+      border: 1px solid #d9d9d9;
+      border-radius: 4px;
+      font-size: 0.95em;
+      background: white;
+    }
+
+    .filter-input:focus,
+    .filter-select:focus {
+      outline: none;
+      border-color: #1890ff;
+      box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.2);
+    }
+
+    .filter-results {
+      font-size: 0.9em;
+      color: #666;
+      margin-top: 12px;
+    }
+
+    .timeline-item.hidden {
+      display: none;
+    }
+
+    .no-results {
+      text-align: center;
+      padding: 40px;
+      color: #999;
     }
 
     @media (max-width: 600px) {
@@ -106,8 +235,10 @@
     }
   </style>
 </head>
+
 <body>
-  <nav class="nav" style="display:flex; justify-content:space-between; padding:var(--space-4); border-bottom:1px solid var(--border-color);">
+  <nav class="nav"
+    style="display:flex; justify-content:space-between; padding:var(--space-4); border-bottom:1px solid var(--border-color);">
     <div class="logo h3">Living Repository</div>
     <div>
       <a href="{{ url_for('projects') }}" class="btn btn-link">My Projects</a>
@@ -117,30 +248,90 @@
 
   <div class="container">
     <a href="{{ url_for('project_detail', project_id=project_id) }}" class="btn btn-outline">Back to Project</a>
-    <h1 class="timeline-title">Timeline of {{ project_title }}</h1>
-    
 
-    <div class="timeline-container">
-      {% if log_entries %}
-        {% for entry in log_entries %}
-        <div class="timeline-item">
-          <div><strong>{{ entry.user_name or "Unknown User" }}</strong></div>
-          <div>{{ entry.action }}{% if entry.object_type %} {{ entry.object_type }}{% endif %}</div>
-          {% if entry.object_name %}<div>"{{ entry.object_name }}"</div>{% endif %}
-          <div class="event-card">
-            <p><em>{{ entry.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</em></p>
-            {% if entry.object_id %}<p><strong>Object ID:</strong> {{ entry.object_id }}</p>{% endif %}
-            {% if entry.project_id %}<p><strong>Project ID:</strong> {{ entry.project_id }}</p>{% endif %}
-          </div>
+    <div class="filter-header">
+      <h1 class="timeline-title">Timeline of {{ project_title }}</h1>
+      <button class="filter-toggle-btn" id="filterToggle">
+        <span>Filters</span>
+        <span class="filter-badge" id="filterBadge" style="display: none;">0</span>
+        <span class="filter-arrow" id="filterArrow">▼</span>
+      </button>
+    </div>
+
+    <div class="filter-panel" id="filterPanel">
+      <div class="filter-panel-header">
+        <div class="filter-panel-title">Filter Timeline</div>
+        <button class="clear-filters-btn" id="clearFilters">Clear all filters</button>
+      </div>
+
+      <div class="filter-grid">
+        <div class="filter-field">
+          <label class="filter-label" for="filterDateFrom">Date From</label>
+          <input type="date" id="filterDateFrom" class="filter-input">
         </div>
-        {% endfor %}
+
+        <div class="filter-field">
+          <label class="filter-label" for="filterDateTo">Date To</label>
+          <input type="date" id="filterDateTo" class="filter-input">
+        </div>
+
+        <div class="filter-field">
+          <label class="filter-label" for="filterUser">User</label>
+          <select id="filterUser" class="filter-select">
+            <option value="">All users</option>
+          </select>
+        </div>
+
+        <div class="filter-field">
+          <label class="filter-label" for="filterAction">Action</label>
+          <select id="filterAction" class="filter-select">
+            <option value="">All actions</option>
+          </select>
+        </div>
+
+        <div class="filter-field">
+          <label class="filter-label" for="filterObjectType">Object Type</label>
+          <select id="filterObjectType" class="filter-select">
+            <option value="">All types</option>
+          </select>
+        </div>
+
+        <div class="filter-field">
+          <label class="filter-label" for="filterSearch">Search</label>
+          <input type="text" id="filterSearch" class="filter-input" placeholder="Search object names...">
+        </div>
+      </div>
+
+      <div class="filter-results" id="filterResults"></div>
+    </div>
+
+    <div class="timeline-container" id="timelineContainer">
+      {% if log_entries %}
+      {% for entry in log_entries %}
+      <div class="timeline-item" data-user="{{ entry['user_name'] or 'Unknown User'}}"
+        data-action="{{ entry['action'] }}" data-object-type="{{ entry['object_type'] or ''}}"
+        data-object-name="{{ entry['object_name'] or ''}}"
+        data-timestamp="{{ entry['timestamp'].strftime('%Y-%m-%d')}}">
+        <div><strong>{{ entry['user_name'] or "Unknown User" }}</strong></div>
+        <div>{{ entry['action'] }}{% if entry['object_type'] %} {{ entry['object_type'] }}{% endif %}</div>
+        {% if entry['object_name'] %}<div>"{{ entry['object_name'] }}"</div>{% endif %}
+        <div class="event-card">
+          <p><em>{{ entry['timestamp'].strftime('%Y-%m-%d %H:%M:%S') }}</em></p>
+        </div>
+      </div>
+      {% endfor %}
       {% else %}
-        <p>No activity yet for this project.</p>
+      <p>No activity yet for this project.</p>
       {% endif %}
+    </div>
+
+    <div class="no-results" id="noResults" style="display: none;">
+      No events match your filters. Try adjusting your criteria.
     </div>
   </div>
 
-  <footer style="text-align:center; padding:var(--space-8); border-top:1px solid var(--border-color); margin-top:var(--space-16);">
+  <footer
+    style="text-align:center; padding:var(--space-8); border-top:1px solid var(--border-color); margin-top:var(--space-16);">
     <p class="muted text-sm">&copy; {{ current_year }} Living Repository</p>
   </footer>
 
@@ -150,6 +341,150 @@
         event.classList.toggle('event-open');
       });
     });
+
+    //Filter functionality
+    var filterToggle = document.getElementById('filterToggle');
+    var filterPanel = document.getElementById('filterPanel');
+    var filterBadge = document.getElementById('filterBadge');
+    var clearFiltersBtn = document.getElementById('clearFilters');
+    var filterResults = document.getElementById('filterResults');
+    var noResults = document.getElementById('noResults');
+    var timelineContainer = document.getElementById('timelineContainer');
+
+    var filters = {
+      dateFrom: document.getElementById('filterDateFrom'),
+      dateTo: document.getElementById('filterDateTo'),
+      user: document.getElementById('filterUser'),
+      action: document.getElementById('filterAction'),
+      objectType: document.getElementById('filterObjectType'),
+      search: document.getElementById('filterSearch')
+    };
+
+    //Populate filter dropdowns
+    var timelineItems = document.querySelectorAll('.timeline-item');
+    var users = new Set();
+    var actions = new Set();
+    var objectTypes = new Set();
+
+    timelineItems.forEach(function (item) {
+      var user = item.dataset.user;
+      var action = item.dataset.action;
+      var objectType = item.dataset.objectType;
+
+      if (user) users.add(user);
+      if (action) actions.add(action);
+      if (objectType) objectTypes.add(objectType);
+    });
+
+    users.forEach(function (user) {
+      var option = document.createElement('option');
+      option.value = user;
+      option.textContent = user;
+      filters.user.appendChild(option);
+    });
+
+    actions.forEach(function (action) {
+      var option = document.createElement('option');
+      option.value = action;
+      option.textContent = action;
+      filters.action.appendChild(option);
+    });
+
+    objectTypes.forEach(function (type) {
+      var option = document.createElement('option');
+      option.value = type;
+      option.textContent = type;
+      filters.objectType.appendChild(option);
+    });
+
+    // Toggle filter panel
+    filterToggle.addEventListener('click', function () {
+      filterPanel.classList.toggle('active');
+      filterArrow.classList.toggle('active');
+    });
+
+    // Apply filters
+    function applyFilters() {
+      var dateFrom = filters.dateFrom.value;
+      var dateTo = filters.dateTo.value;
+      var user = filters.user.value.toLowerCase();
+      var action = filters.action.value.toLowerCase();
+      var objectType = filters.objectType.value.toLowerCase();
+      var search = filters.search.value.toLowerCase();
+
+      var visibleCount = 0;
+      var totalCount = timelineItems.length;
+
+      timelineItems.forEach(function (item) {
+        var itemDate = item.dataset.timestamp;
+        var itemUser = item.dataset.user.toLowerCase();
+        var itemAction = item.dataset.action.toLowerCase();
+        var itemObjectType = item.dataset.objectType.toLowerCase();
+        var itemObjectName = item.dataset.objectName.toLowerCase();
+
+        var show = true;
+
+        if (dateFrom && itemDate < dateFrom) show = false;
+        if (dateTo && itemDate > dateTo) show = false;
+        if (user && itemUser !== user) show = false;
+        if (action && itemAction !== action) show = false;
+        if (objectType && itemObjectType !== objectType) show = false;
+        if (search && itemObjectName.indexOf(search) === -1) show = false;
+
+        if (show) {
+          item.classList.remove('hidden');
+          visibleCount++;
+        } else {
+          item.classList.add('hidden');
+        }
+      });
+
+      // Update results text
+      filterResults.textContent = 'Showing ' + visibleCount + ' of ' + totalCount + ' events';
+
+      // Show/hide no results message
+      if (visibleCount === 0) {
+        noResults.style.display = 'block';
+        timelineContainer.style.display = 'none';
+      } else {
+        noResults.style.display = 'none';
+        timelineContainer.style.display = 'block';
+      }
+
+      // Update badge
+      var activeFilters = [
+        dateFrom, dateTo, user, action, objectType, search
+      ].filter(function (val) { return val !== ''; }).length;
+
+      if (activeFilters > 0) {
+        filterBadge.textContent = activeFilters;
+        filterBadge.style.display = 'inline-block';
+      } else {
+        filterBadge.style.display = 'none';
+      }
+    }
+
+    // Event listeners for all filters
+    for (var key in filters) {
+      if (filters.hasOwnProperty(key)) {
+        filters[key].addEventListener('input', applyFilters);
+        filters[key].addEventListener('change', applyFilters);
+      }
+    }
+
+    // Clear filters
+    clearFiltersBtn.addEventListener('click', function () {
+      for (var key in filters) {
+        if (filters.hasOwnProperty(key)) {
+          filters[key].value = '';
+        }
+      }
+      applyFilters();
+    });
+
+    // Initialise results text
+    filterResults.textContent = 'Showing ' + timelineItems.length + ' of ' + timelineItems.length + ' events';
   </script>
 </body>
+
 </html>

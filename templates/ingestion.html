@@ -46,12 +46,50 @@
             <button class="btn btn-outline">← Back to Project</button>
           </a>
         </div>
+        <!-- Search with Filters -->
+        <div class="search-container">
+          <!-- Main Search -->
+          <div class="main-search-row">
+            <input id="docSearch" class="input" placeholder="Search documents…" style="flex:1;" />
+            <button id="docSearchBtn" class="btn btn-primary">Search</button>
+          </div>
 
-        <!-- Search -->
-        <div style="display:flex; justify-content:center; margin-bottom:24px;">
-          <input id="docSearch" class="input" placeholder="Search documents…" style="max-width:500px; flex:1" />
-          <button id="docSearchBtn" class="btn btn-outline">Search</button>
+          <!--Filters Grid -->
+          <div class="search-filters">
+            <!-- Tag Filter -->
+            <div class="filter-group">
+              <label class="filter-label">Tags</label>
+              <input id="filterTags" class="filter-input" placeholder="Filter by tags..." />
+            </div>
+
+            <!-- Author Filter -->
+            <div class="filter-group">
+              <label class="filter-label">Author</label>
+              <input id="filterAuthor" class="filter-input" placeholder="Filter by author..." />
+            </div>
+
+            <!-- Status Filter -->
+            <div class="filter-group">
+              <label class="filter-label">Status</label>
+              <select id="filterStatus" class="filter-input">
+                <option value="">All Status</option>
+                <option value="Complete">Complete</option>
+                <option value="Pending">Pending</option>
+              </select>
+            </div>
+
+            <!-- Clear all button -->
+            <div class="filter-actions">
+              <button id="clearFilters" class="clear-filters-btn btn">Clear All</button>
+            </div>
+          </div>
+
+          <!-- Active Filters Display -->
+          <div id="activeFilters" class="active-filters" style="display: none;"></div>
         </div>
+
+        <!-- Search Results Info -->
+        <div id="searchResultsInfo" class="search-results-info" style="display: none;"></div>
 
         <!-- Upload button -->
         <div style="display:flex; justify-content:center; margin-bottom:24px;">
@@ -61,7 +99,9 @@
         <!-- Document List -->
         <div id="docList">
           {% for doc in documents %}
-          <article class="doc-card" data-doc-id="{{ doc.doc_id }}">
+          <article class="doc-card" data-doc-id="{{ doc.doc_id }}" data-title="{{doc.title|lower }}"
+            data-author="{{ (doc.author or 'Unknown')|lower }}" data-tags="{{ (doc.tags or '')|lower }}"
+            data-status="{{ (doc.status or 'Pending')|lower }}">
             <a href="{{ url_for('document_detail', project_id=project_id, doc_id=doc.doc_id) }}"
               style="display:block; text-decoration:none; color:inherit;">
               <div class="doc-row">
@@ -81,7 +121,6 @@
               </div>
             </a>
 
-            <!-- DARCIE CHANGED THIS SECTION!!!!!!-->
             {% if doc.tags %}
             <div class="doc-tags" style="margin-top:8px; display:flex; flex-wrap:wrap; gap:6px; align-items: center;">
               {% for tag in doc.tags.split(",") %}
@@ -109,8 +148,8 @@
         <h2 class="h2">Upload Document</h2>
         <form id="uploadForm" enctype="multipart/form-data">
           <div id="dropzone" class="dropzone" tabindex="0">
-            <input id="fileInput" name="file" type="file"
-             multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.tiff" hidden />
+            <input id="fileInput" name="file" type="file" multiple
+              accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.tiff" hidden />
             <div class="dropzone-inner">
               <div class="drop-illustration">⬆</div>
               <div class="drop-title">Drag & drop file here</div>
@@ -126,9 +165,9 @@
           <textarea id="docDescription" name="description" class="input" placeholder="Optional description"></textarea>
           <select id="docPrivacy" name="privacy" class="select" required>
             <option value="public" selected>Public</option>
-          <option value="private">Private</option>
-          <option value="restricted">Restricted</option>
-        </select>
+            <option value="private">Private</option>
+            <option value="restricted">Restricted</option>
+          </select>
 
 
           <div class="ingest-actions">
@@ -164,10 +203,10 @@
           <div class="group-block">
             <div class="group-title">Classification</div>
             <select id="classification" class="select">
-            <option value="public">Public</option>
-            <option value="internal" selected>Internal</option>
-            <option value="private">Confidential</option>
-        </select>
+              <option value="public">Public</option>
+              <option value="internal" selected>Internal</option>
+              <option value="private">Confidential</option>
+            </select>
           </div>
           <div class="group-block">
             <div class="group-title">Reviewer</div>
@@ -207,7 +246,26 @@
     const docTitle = document.getElementById('docTitle');
     let selectedFiles = [];
 
+    // Search and filter elements
+    const docSearch = document.getElementById('docSearch');
+    const filterTags = document.getElementById('filterTags');
+    const filterAuthor = document.getElementById('filterAuthor');
+    const filterStatus = document.getElementById('filterStatus');
+    const clearFiltersBtn = document.getElementById('clearFilters');
+    const activeFiltersContainer = document.getElementById('activeFilters');
+    const searchResultsInfo = document.getElementById('searchResultsInfo');
+    const noResults = document.getElementById('noResults');
+
+    let activeTagFilters = new Set();
+    let activeAuthorFilters = new Set();
+    let allDocCards = [];
+
     document.getElementById('year').textContent = new Date().getFullYear();
+
+    //Initalise document cards array
+    function initialiseDocCards() {
+      allDocCards = Array.from(document.querySelectorAll('.doc-card'));
+    }
 
     function goToScreen(screenName) {
       screens.forEach(s => s.classList.toggle('active', s.dataset.screen === screenName));
@@ -221,11 +279,10 @@
 
     //functions for when ingesting a file auto inputs the filename as the document title field
 
-    
     function filenameToTitle(name) {
       const noPath = name.split('\\').pop().split('/').pop();
       const withoutExt = noPath.replace(/\.[^/.]+$/, '');
-    return withoutExt.replace(/[_-]+/g, ' ').trim();
+      return withoutExt.replace(/[_-]+/g, ' ').trim();
     }
 
     function handleFiles(files) {
@@ -237,10 +294,10 @@
       filePicked.hidden = false;
       filePicked.textContent = displayName;
 
-  if (!docTitle.value || docTitle.value.trim() === '') {
-    docTitle.value = filenameToTitle(displayName);
-  }
-}
+      if (!docTitle.value || docTitle.value.trim() === '') {
+        docTitle.value = filenameToTitle(displayName);
+      }
+    }
 
     // Navigation
     document.getElementById('btnGoUpload').addEventListener('click', () => goToScreen('upload'));
@@ -258,6 +315,180 @@
         filePicked.textContent = `Selected file: ${fileInput.files[0].name}`;
       } else { filePicked.hidden = true; }
     });
+
+    // Enhanced Search and Filter Functions
+    function performSearch() {
+      const searchTerm = docSearch.value.toLowerCase().trim();
+      const statusFilter = filterStatus.value.toLowerCase().trim();
+
+      let visibleCount = 0;
+      let totalCount = allDocCards.length;
+
+      allDocCards.forEach(card => {
+        const title = card.dataset.title || '';
+        const author = card.dataset.author || '';
+        const tags = card.dataset.tags || '';
+        const status = card.dataset.status || '';
+
+        // Main search only searches title
+        const matchesSearch = !searchTerm || title.includes(searchTerm);
+
+        // Check if all active tag filters are present
+        let matchesTags = true;
+        if (activeTagFilters.size > 0) {
+          matchesTags = Array.from(activeTagFilters).some(tagFilter => tags.includes(tagFilter));
+        }
+        // Check if all active author filters are present
+        let matchesAuthor = true;
+        if (activeAuthorFilters.size > 0) {
+          matchesAuthor = Array.from(activeAuthorFilters).some(authorFilter => author.includes(authorFilter));
+        }
+        const matchesStatus = !statusFilter || status.includes(statusFilter);
+
+        const shouldShow = matchesSearch && matchesTags && matchesAuthor && matchesStatus;
+
+        card.style.display = shouldShow ? 'block' : 'none';
+        if (shouldShow) visibleCount++;
+      });
+
+      updateSearchResults(visibleCount, totalCount);
+      updateActiveFilters();
+    }
+
+    // Update search results
+    function updateSearchResults(visible, total) {
+      if (hasActiveFilters()) {
+        searchResultsInfo.style.display = 'block';
+        searchResultsInfo.textContent = `Showing ${visible} of ${total} documents`;
+        if (noResults) {
+          noResults.style.display = visible === 0 ? 'block' : 'none';
+        }
+      } else {
+        searchResultsInfo.style.display = 'none';
+        if (noResults) {
+          noResults.style.display = 'none';
+        }
+      }
+    }
+
+    // Active Filter functions
+    function hasActiveFilters() {
+      return docSearch.value.trim() !== '' ||
+        activeTagFilters.size > 0 ||
+        activeAuthorFilters.size > 0 ||
+        filterStatus.value !== '';
+    }
+
+    function updateActiveFilters() {
+      const activeFilters = [];
+
+      if (docSearch.value.trim()) {
+        activeFilters.push({ type: 'search', value: docSearch.value.trim(), label: `Search: "${docSearch.value.trim()}"` });
+      }
+      // Add each tag filter
+      activeTagFilters.forEach(tag => {
+        activeFilters.push({ type: 'tag', value: tag, label: `Tag: "${tag}"` });
+      });
+      // Add each author filter
+      activeAuthorFilters.forEach(author => {
+        activeFilters.push({ type: 'author', value: author, label: `Author: "${author}"` });
+      });
+
+      if (filterStatus.value) {
+        activeFilters.push({ type: 'status', value: filterStatus.value, label: `Status: ${filterStatus.value}` });
+      }
+
+      if (activeFilters.length === 0) {
+        activeFiltersContainer.style.display = 'none';
+        return;
+      }
+
+      activeFiltersContainer.style.display = 'flex';
+      activeFiltersContainer.innerHTML = activeFilters.map(filter =>
+        `<span class="chip">
+         ${filter.label}
+        <span class="chip-x" data-filter-type="${filter.type}" data-filter-value="${filter.value}">X</span>
+                </span>`
+      ).join(' ');
+
+      // Add event listeners to remove filter buttons
+      activeFiltersContainer.querySelectorAll('.chip-x').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const filterType = e.target.dataset.filterType;
+          const filterValue = e.target.dataset.filterValue;
+          clearSpecificFilter(filterType, filterValue);
+        });
+      });
+    }
+
+    function clearSpecificFilter(filterType, filterValue) {
+      switch (filterType) {
+        case 'search':
+          docSearch.value = '';
+          break;
+        case 'tag':
+          activeTagFilters.delete(filterValue);
+          break;
+        case 'author':
+          activeAuthorFilters.delete(filterValue);
+          break;
+        case 'status':
+          filterStatus.value = '';
+          break;
+      }
+      performSearch();
+    }
+
+    function clearAllFilters() {
+      docSearch.value = '';
+      activeTagFilters.clear();
+      activeAuthorFilters.clear();
+      filterTags.value = '';
+      filterAuthor.value = '';
+      filterStatus.value = '';
+      performSearch();
+    }
+
+    // Event Listeners for Search and Filters
+    function debounce(func, wait) {
+      let timeout;
+      return function executedFuntion(...args) {
+        const later = () => {
+          clearTimeout(timeout);
+          func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+      };
+    }
+    const debouncedSearch = debounce(performSearch, 300);
+
+    // Add event listeners for search
+    docSearch.addEventListener('input', debouncedSearch);
+    // Handle tag filter with Enter key
+    filterTags.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        const tagValue = filterTags.value.trim();
+        if (tagValue) {
+          activeTagFilters.add(tagValue.toLowerCase());
+          filterTags.value = ''; // Clear input
+          performSearch();
+        }
+      }
+    });
+    // Handle author filter with Enter key
+    filterAuthor.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        const authorValue = filterAuthor.value.trim();
+        if (authorValue) {
+          activeAuthorFilters.add(authorValue.toLowerCase());
+          filterAuthor.value = '';
+          performSearch();
+        }
+      }
+    });
+    filterStatus.addEventListener('change', performSearch);
+    clearFiltersBtn.addEventListener('click', clearAllFilters);
 
     // Process buttons
     function attachProcessButtons() {
@@ -500,7 +731,7 @@
 
       // Remove add tag button
       const addTagBtn = docCard.querySelector('.add-tag-btn');
-      if(addTagBtn) {
+      if (addTagBtn) {
         addTagBtn.remove();
       }
 
@@ -687,73 +918,73 @@
       filePicked.textContent = `Selected file: ${file.name}`;
     }
 
-// Global drag & drop guard
-// Prevent the browser from opening the file when it's dropped on the page.
-['dragenter','dragover'].forEach(evt => {
-  dropzone?.addEventListener(evt, (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    dropzone.classList.add('dragover');
-  });
-});
+    // Global drag & drop guard
+    // Prevent the browser from opening the file when it's dropped on the page.
+    ['dragenter', 'dragover'].forEach(evt => {
+      dropzone?.addEventListener(evt, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropzone.classList.add('dragover');
+      });
+    });
 
 
-// Drag & drop zone
-['dragenter','dragover'].forEach(evt => {
-  dropzone?.addEventListener(evt, (e) => {
-    e.preventDefault(); e.stopPropagation();
-    dropzone.classList.add('dragover');
-  });
-});
-['dragleave','drop'].forEach(evt => {
-  dropzone?.addEventListener(evt, (e) => {
-    e.preventDefault(); e.stopPropagation();
-    dropzone.classList.remove('dragover');
-  });
-});
+    // Drag & drop zone
+    ['dragenter', 'dragover'].forEach(evt => {
+      dropzone?.addEventListener(evt, (e) => {
+        e.preventDefault(); e.stopPropagation();
+        dropzone.classList.add('dragover');
+      });
+    });
+    ['dragleave', 'drop'].forEach(evt => {
+      dropzone?.addEventListener(evt, (e) => {
+        e.preventDefault(); e.stopPropagation();
+        dropzone.classList.remove('dragover');
+      });
+    });
 
-browseBtn?.addEventListener('click', () => fileInput.click());
-fileInput?.addEventListener('change', (e) => {
-  const files = Array.from(e.target.files || []);
-  selectedFiles = files;    
-  renderPicked(selectedFiles);
-  syncInput();
-});
+    browseBtn?.addEventListener('click', () => fileInput.click());
+    fileInput?.addEventListener('change', (e) => {
+      const files = Array.from(e.target.files || []);
+      selectedFiles = files;
+      renderPicked(selectedFiles);
+      syncInput();
+    });
 
-// multidrop
-dropzone?.addEventListener('drop', (e) => {
-  const files = Array.from(e.dataTransfer?.files || []).filter(f => f.size > 0);
-  if (!files.length) return;
+    // multidrop
+    dropzone?.addEventListener('drop', (e) => {
+      const files = Array.from(e.dataTransfer?.files || []).filter(f => f.size > 0);
+      if (!files.length) return;
 
-  const dt = new DataTransfer();
-  files.forEach(f => dt.items.add(f));
-  fileInput.files = dt.files;
+      const dt = new DataTransfer();
+      files.forEach(f => dt.items.add(f));
+      fileInput.files = dt.files;
 
-  selectedFiles = files;    
-  renderPicked(selectedFiles);
-  syncInput();
-});
+      selectedFiles = files;
+      renderPicked(selectedFiles);
+      syncInput();
+    });
 
-// Keep the hidden <input type="file"> in sync with selection
-function syncInput() {
-  const dt = new DataTransfer();
-  (selectedFiles || []).forEach(f => dt.items.add(f));
-  fileInput.files = dt.files;
-}
+    // Keep the hidden <input type="file"> in sync with selection
+    function syncInput() {
+      const dt = new DataTransfer();
+      (selectedFiles || []).forEach(f => dt.items.add(f));
+      fileInput.files = dt.files;
+    }
 
 
-function renderPicked(files) {
-  if (Array.isArray(files)) selectedFiles = files;
+    function renderPicked(files) {
+      if (Array.isArray(files)) selectedFiles = files;
 
-  if (!filePicked) return;
-  if (!selectedFiles || !selectedFiles.length) {
-    filePicked.hidden = true;
-    filePicked.textContent = '';
-    return;
-  }
+      if (!filePicked) return;
+      if (!selectedFiles || !selectedFiles.length) {
+        filePicked.hidden = true;
+        filePicked.textContent = '';
+        return;
+      }
 
-  filePicked.hidden = false;
-  filePicked.innerHTML = `
+      filePicked.hidden = false;
+      filePicked.innerHTML = `
     <div style="font-weight:600; margin-bottom:6px;">Selected ${selectedFiles.length} file(s)</div>
     <ul class="file-list">
       ${selectedFiles.map((f, i) => {
@@ -768,23 +999,24 @@ function renderPicked(files) {
       }).join('')}
     </ul>
   `;
-}
+    }
 
-// Click x to remove a file from the selection
-filePicked?.addEventListener('click', (e) => {
-  const btn = e.target.closest('.file-remove');
-  if (!btn) return;
-  const idx = Number(btn.dataset.index);
-  if (Number.isNaN(idx)) return;
-  selectedFiles.splice(idx, 1);
-  renderPicked();   
-  syncInput();     
-});
+    // Click x to remove a file from the selection
+    filePicked?.addEventListener('click', (e) => {
+      const btn = e.target.closest('.file-remove');
+      if (!btn) return;
+      const idx = Number(btn.dataset.index);
+      if (Number.isNaN(idx)) return;
+      selectedFiles.splice(idx, 1);
+      renderPicked();
+      syncInput();
+    });
 
-function escapeHtml(s){
-  return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-}
-
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+    }
+    //Initialise document cards on page load
+    initialiseDocCards();
   </script>
 </body>
 
