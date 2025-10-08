@@ -13,6 +13,9 @@ import google.generativeai as genai
 import re
 import openpyxl
 import xlrd
+import numpy as np
+
+
 
 
 # ------------------ App Setup -----------------------
@@ -51,6 +54,11 @@ def dict_cursor(cursor):
     """Return rows as dictionaries."""
     columns = [column[0] for column in cursor.description]
     return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+def embed_text_for_storage(text, model="text-embedding-004"):
+    response = genai.embed_content(model=model, content=text, task_type="retrieval_document")
+    embedding = np.array(response["embedding"], dtype=np.float32)
+    return embedding.tolist()
 
 def get_project_title(project_id):
     conn = get_db()
@@ -525,21 +533,21 @@ def process_document(project_id, doc_id):
     cur = conn.cursor()
 
     try:
-        # fetch document
+        # --- Fetch document text ---
         cur.execute("SELECT title, ocr_text FROM Document WHERE doc_id = ?", (doc_id,))
         row = cur.fetchone()
         if not row or not row[1]:
             return jsonify({"success": False, "error": "Document has no text"}), 400
         doc_title, doc_text = row
 
-        # fetch project
+        # --- Fetch project info ---
         cur.execute("SELECT title, description FROM Project WHERE project_id = ?", (project_id,))
         row = cur.fetchone()
         if not row:
             return jsonify({"success": False, "error": "Project not found"}), 404
         project_title, project_description = row
 
-        # Gemini AI
+        # --- Summarize document with Gemini ---
         model = genai.GenerativeModel("gemini-2.5-flash-lite")
         prompt = f"""
         Project: {project_title}
@@ -555,19 +563,37 @@ def process_document(project_id, doc_id):
         if not summary:
             return jsonify({"success": False, "error": "AI did not return summary"}), 500
 
-        # update Project_Document
-        cur.execute(
-            "UPDATE Project_Document SET contextual_summary = ? WHERE project_id = ? AND document_id = ?",
-            (summary, project_id, doc_id)
-        )
-        # update Document status
-        cur.execute(
-            "UPDATE Document SET status = ? WHERE doc_id = ?",
-            ("Complete", doc_id)
-        )
+        # --- Save summary ---
+        cur.execute("""
+            UPDATE Project_Document
+            SET contextual_summary = ?
+            WHERE project_id = ? AND document_id = ?
+        """, (summary, project_id, doc_id))
+        cur.execute("UPDATE Document SET status = ? WHERE doc_id = ?", ("Complete", doc_id))
+
+        # --- Generate and store embedding ---
+        embed_model = "text-embedding-004"
+        embed_resp = genai.embed_content(model=embed_model, content=doc_text[:8000], task_type="retrieval_document")
+        embedding = np.array(embed_resp["embedding"], dtype=np.float32)
+        embedding /= np.linalg.norm(embedding)  # normalize for cosine sim
+
+        # Convert to binary blob for Azure SQL
+        import struct
+        embedding_blob = struct.pack(f'{len(embedding)}f', *embedding)
+
+        cur.execute("""
+            IF EXISTS (SELECT 1 FROM DocumentEmbedding WHERE doc_id = ?)
+                UPDATE DocumentEmbedding
+                SET embedding = ?, model = ?, last_updated = SYSDATETIME()
+                WHERE doc_id = ?
+            ELSE
+                INSERT INTO DocumentEmbedding (doc_id, project_id, model, embedding)
+                VALUES (?, ?, ?, ?)
+        """, (doc_id, embedding_blob, embed_model, doc_id, doc_id, project_id, embed_model, embedding_blob))
+
         conn.commit()
 
-        #Log the event
+        # --- Log event ---
         log_event(
             user_id=user_id,
             project_id=project_id,
@@ -587,6 +613,7 @@ def process_document(project_id, doc_id):
     finally:
         cur.close()
         conn.close()
+
 
 
 @app.route("/project/<project_id>/upload", methods=["POST"])
@@ -774,6 +801,29 @@ def project_chats(project_id):
                            current_year=datetime.datetime.now().year,
                            project_title=get_project_title(project_id))
 
+@app.route("/project/<project_id>/chat/new", methods=["POST"])
+def new_chat(project_id):
+    if "user_id" not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    user_id = session["user_id"]
+    chat_name = request.json.get("chat_name", "").strip()
+    if not chat_name:
+        return jsonify({"error": "Chat name is required"}), 400
+
+    chat_id = str(uuid.uuid4())
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO Chat (chat_id, project_id, user_id, chat_name, created_at)
+        VALUES (?, ?, ?, ?, ?)
+    """, (chat_id, project_id, user_id, chat_name, datetime.datetime.utcnow()))
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    return jsonify({"chat_id": chat_id, "chat_name": chat_name})
+
 @app.route("/project/<project_id>/chat/<chat_id>")
 def load_chat(project_id, chat_id):
     if "user_id" not in session:
@@ -814,7 +864,6 @@ def send_message(project_id, chat_id):
 
     user_id = session["user_id"]
     message = request.json.get("message", "")
-
     conn = get_db()
     cur = conn.cursor()
 
@@ -826,246 +875,83 @@ def send_message(project_id, chat_id):
     """, (content_id_user, chat_id, message, datetime.datetime.now(datetime.timezone.utc)))
     conn.commit()
 
-    # --- Get data from project documents for AI search ---
+    try:
+        # --- Embed user query ---
+        embed_model = "text-embedding-004"
+        query_embed = genai.embed_content(model=embed_model, content=message, task_type="retrieval_query")["embedding"]
+        query_embed = np.array(query_embed, dtype=np.float32)
+        query_embed /= np.linalg.norm(query_embed)
 
-    cur.execute("""
-    SELECT 
-        d.title, 
-        LEFT(d.ocr_text, 1000) AS ocr_text,
-        STRING_AGG(t.label, ',') AS tags,
-        pd.contextual_summary
-    FROM Document d
-    LEFT JOIN Document_Tag dt ON d.doc_id = dt.document_id
-    LEFT JOIN Tag t ON dt.tag_id = t.tag_id
-    JOIN Project_Document pd ON d.doc_id = pd.document_id
-    WHERE pd.project_id = ?
-    GROUP BY d.doc_id, d.title, d.ocr_text, pd.contextual_summary
-                    """, (project_id,))
-    docs = dict_cursor(cur)  # your helper to convert rows to dict
+        # Retrieve stored embeddings for this project
+        cur.execute("""
+            SELECT e.doc_id, e.embedding, d.title, d.ocr_text, pd.contextual_summary
+            FROM DocumentEmbedding e
+            JOIN Document d ON e.doc_id = d.doc_id
+            JOIN Project_Document pd ON pd.document_id = d.doc_id
+            WHERE pd.project_id = ?
+        """, (project_id,))
+        rows = cur.fetchall()
 
+        if not rows:
+            reply = "No processed documents are available for this project yet."
+        else:
+            # Compute similarities
+            import struct
+            sims = []
+            docs_data = []
+            for doc_id, blob, title, ocr_text, summary in rows:
+                doc_vec = np.frombuffer(blob, dtype=np.float32)
+                sim = float(np.dot(query_embed, doc_vec) / (np.linalg.norm(doc_vec) * np.linalg.norm(query_embed)))
+                sims.append(sim)
+                docs_data.append({
+                    "title": title,
+                    "ocr_text": ocr_text,
+                    "summary": summary,
+                    "similarity": sim
+                })
 
-# if there are not many douments in the project, dont use bulk searching
-    if len(docs) < 10:
-        info_parts = []
+            # Rank top 5 docs
+            top_docs = sorted(docs_data, key=lambda d: d["similarity"], reverse=True)[:5]
 
-        for d in docs:
-            tags_str = f" [tags: {d['tags']}]" if d['tags'] else ""
-            summary_str = f" Summary: {d['contextual_summary']}" if d['contextual_summary'] else ""
+            # Build retrieval context
+            context = "\n\n".join(
+                f"Document: {d['title']}\nSummary: {d.get('summary', '')}\nText: {d.get('ocr_text','')[:1000]}"
+                for d in top_docs
+            )
 
-            info_parts.append(f"Document: {d['title']}{tags_str}{summary_str}\n Text Raw: {d.get('ocr_text','')[:1000]}")
-            #info_parts.append(f"Document: {d['title']}")
-
-        context = "\n\n".join(info_parts)
-
-        try:
-
+            # Generate RAG response
             prompt = f"""
-
             You are assisting a user with project documents.
 
-  
-
-            Project Documents:
-
+            Relevant Project Documents:
             {context}
 
-  
-
-            User Question: {message}
-
+            User Question:
+            {message}
             """
-
             model = genai.GenerativeModel("gemini-2.5-flash-lite")
-
             response = model.generate_content(prompt)
+            reply = response.text.strip() if response and response.text else "No response generated."
+
+        # --- Save AI reply ---
+        content_id_ai = str(uuid.uuid4())
+        cur.execute("""
+            INSERT INTO ChatContent (content_id, chat_id, sender, content, created_at)
+            VALUES (?, ?, 'ai', ?, ?)
+        """, (content_id_ai, chat_id, reply, datetime.datetime.now(datetime.timezone.utc)))
+        conn.commit()
+
+        return jsonify({"reply": reply})
+
+    except Exception as e:
+        conn.rollback()
+        print("Chat error:", e)
+        return jsonify({"reply": "Sorry, I had trouble generating a response."})
+
+    finally:
+        cur.close()
+        conn.close()
 
-            reply = response.text.strip()
-            #reply = str(info_parts)
-
-
-
-        except Exception as e:
-
-            print("Chat error:", e)
-
-            reply = "Sorry, I had trouble generating a response."
-
-    else:
-
-
-# level 1 search data prep: title and tag
-
-        context_parts = []
-        for d in docs:
-            tags_str = f" [tags: {d['tags']}]" if d['tags'] else ""
-            context_parts.append(f"Document: {d['title']}: {tags_str}")
-
-        lvl1_context = "\n\n".join(context_parts)
-
-
-
-    # --- Generate AI response ---
-        try:
-
-            prompt1 = f"""
-
-            Based on the title and tags of each document, please return only a list of document titles that are NOT relevant to the user's question seperated by commas and nothing else.
-
-            User Question: {message}
-
-            Project Documents:
-
-            {lvl1_context}
-
-            """
-
-            model = genai.GenerativeModel("gemini-2.5-flash-lite")
-
-            response = model.generate_content(prompt1)
-
-            lvl1_reply = response.text.strip()
-
-  
-  
-
-            lvl1_list = [name.strip() for name in lvl1_reply.split(',')]
-
-            deny_set = set(lvl1_list)
-
-        except Exception as e:
-
-            print("Chat error:", e)
-
-            reply = "Sorry, I had trouble generating a response."
-
-# level 2 search data prep: title and summary
-        lvl2_info_parts = []
-
-        for d in docs:
-
-            if d['title'] in deny_set:
-
-                continue
-
-            #lvl2_info_parts.append(f"Document: {d['title']} {d['summary']}")
-            summary_str = f" Summary: {d['contextual_summary']}" if d['contextual_summary'] else ""
-
-            lvl2_info_parts.append(f"Document: {d['title']}{summary_str}")
-
-        lvl2_context = "\n\n".join(lvl2_info_parts)
-
-        try:
-
-            prompt = f"""
-            Based on the title and summary of each document, please return only a list of document titles that are NOT relevant to the user's question seperated by commas and nothing else.
-
-  
-
-            Project Documents:
-
-            {lvl2_context}
-
-  
-
-            User Question: {message}
-
-            """
-
-            model = genai.GenerativeModel("gemini-2.5-flash-lite")
-
-            response = model.generate_content(prompt)
-
-            lvl2_reply = response.text.strip()
-
-        except Exception as e:
-
-            print("Chat error:", e)
-
-            lvl2_reply = "Sorry, I had trouble generating a response."
-    
-        deny_set.update(name.strip() for name in lvl2_reply.split(","))
-
-
-# level 3 search data prep: title and ocr text
-
-        lvl3_info_parts = []
-
-        for d in docs:
-
-            if d['title'] in deny_set:
-
-                continue
-
-            lvl3_info_parts.append(f"Document: {d['title']}\n{d.get('ocr_text','')[:1000]}")
-
-        lvl3_context = "\n\n".join(lvl3_info_parts)
-
-        try:
-
-            prompt = f"""
-
-            You are assisting a user with project documents.
-
-  
-
-            Project Documents:
-
-            {lvl3_context}
-
-  
-
-            User Question: {message}
-
-            """
-
-            model = genai.GenerativeModel("gemini-2.5-flash-lite")
-
-            response = model.generate_content(prompt)
-
-            reply = response.text.strip()
-
-
-        except Exception as e:
-
-            print("Chat error:", e)
-
-            reply = "Sorry, I had trouble generating a response."
-
-    # --- Save AI response ---
-    content_id_ai = str(uuid.uuid4())
-    cur.execute("""
-        INSERT INTO ChatContent (content_id, chat_id, sender, content, created_at)
-        VALUES (?, ?, 'ai', ?, ?)
-    """, (content_id_ai, chat_id, reply, datetime.datetime.now(datetime.timezone.utc)))
-    conn.commit()
-
-    cur.close()
-    conn.close()
-
-    return jsonify({"reply": reply})
-
-@app.route("/project/<project_id>/chat/new", methods=["POST"])
-def new_chat(project_id):
-    if "user_id" not in session:
-        return jsonify({"error": "Unauthorized"}), 401
-
-    user_id = session["user_id"]
-    chat_name = request.json.get("chat_name", "").strip()
-    if not chat_name:
-        return jsonify({"error": "Chat name is required"}), 400
-
-    chat_id = str(uuid.uuid4())
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("""
-        INSERT INTO Chat (chat_id, project_id, user_id, chat_name, created_at)
-        VALUES (?, ?, ?, ?, ?)
-    """, (chat_id, project_id, user_id, chat_name, datetime.datetime.utcnow()))
-    conn.commit()
-    cur.close()
-    conn.close()
-
-    return jsonify({"chat_id": chat_id, "chat_name": chat_name})
 
 # DARCIE ADDED THIS FUNCTION
 @app.route("/project/<project_id>/document/<doc_id>/tags", methods=["DELETE"])
