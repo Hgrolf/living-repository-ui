@@ -15,9 +15,6 @@ import openpyxl
 import xlrd
 import numpy as np
 
-
-
-
 # ------------------ App Setup -----------------------
 app = Flask(__name__)
 UPLOAD_FOLDER = "uploads"
@@ -392,7 +389,7 @@ def share_project(project_id):
     except Exception as e:
         return jsonify({"error": "Invalid expiry date"}), 400
 
-    link_id = str(uuid.uuid4())
+    link_id = str(uuid.uuid4())[:8]  # short unique ID
     created_at = datetime.datetime.now(datetime.timezone.utc)
 
     conn = get_db()
@@ -621,9 +618,9 @@ def project_upload(project_id):
     if "user_id" not in session:
         return jsonify({"error": "Not logged in"}), 401
 
-    files = request.files.getlist("file")  # handles multiple files
-    titles = request.form.getlist("titles[]")  # new: per-file titles
-    description = request.form.get("description", "")
+    files = request.files.getlist("file")
+    titles = request.form.getlist("titles[]")
+    descriptions = request.form.getlist("descriptions[]")
     privacy = request.form.get("privacy", "").strip().lower()
     user_id = session["user_id"]
 
@@ -639,8 +636,9 @@ def project_upload(project_id):
 
         pytesseract.pytesseract.tesseract_cmd = r"C:\\Program Files\\Tesseract-OCR\\tesseract.exe"
 
+        # Determine file type + OCR extraction
         ext = filename.split(".")[-1].lower()
-        if ext in ["pdf"]:
+        if ext == "pdf":
             doc_type = "pdf"
             ocr_text = extract_pdf_text(path)
         elif ext in ["doc", "docx"]:
@@ -657,27 +655,43 @@ def project_upload(project_id):
             ocr_text = ""
 
         ocr_text = re.sub(r"\n{2,}", "\n", ocr_text).strip()
-        title = titles[i] if i < len(titles) else os.path.splitext(filename)[0]  # per-file title
+
+        # Match per-file title & description safely
+        title = titles[i] if i < len(titles) else os.path.splitext(filename)[0]
+        description = descriptions[i] if i < len(descriptions) else ""
+
+        # Tag generation
         tags = generate_tags(ocr_text or description or title or filename)
 
+        # Database insert
         doc_id = str(uuid.uuid4())
         conn = get_db()
         cur = conn.cursor()
         cur.execute("""
-            INSERT INTO Document (doc_id, uploader_id, title, description, url, upload_date, type, ocr_text, privacy_level, status)
+            INSERT INTO Document (
+                doc_id, uploader_id, title, description, url,
+                upload_date, type, ocr_text, privacy_level, status
+            )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (doc_id, user_id, title, description, path, datetime.datetime.now(),
-              doc_type, ocr_text, privacy, "pending"))
+        """, (
+            doc_id, user_id, title, description, path,
+            datetime.datetime.now(), doc_type, ocr_text, privacy, "pending"
+        ))
 
-        cur.execute("INSERT INTO Project_Document (project_id, document_id) VALUES (?, ?)",
-                    (project_id, doc_id))
+        cur.execute(
+            "INSERT INTO Project_Document (project_id, document_id) VALUES (?, ?)",
+            (project_id, doc_id)
+        )
 
+        # Tag linkage
         for tag in tags:
             tag_id = get_or_create_tag(cur, tag)
-            cur.execute("INSERT INTO Document_Tag (document_id, tag_id) VALUES (?, ?)",
-                        (doc_id, tag_id))
+            cur.execute(
+                "INSERT INTO Document_Tag (document_id, tag_id) VALUES (?, ?)",
+                (doc_id, tag_id)
+            )
 
-        # Log the event
+        # Log event
         log_event(
             user_id=user_id,
             project_id=project_id,
@@ -694,11 +708,13 @@ def project_upload(project_id):
         results.append({
             "doc_id": doc_id,
             "title": title,
+            "description": description,
             "tags": tags,
             "type": doc_type
         })
 
     return jsonify({"success": True, "uploaded": results})
+
 
 
 @app.route("/project/<project_id>/document/<doc_id>", methods=["GET", "POST"])
@@ -730,7 +746,7 @@ def document_detail(project_id, doc_id):
 
             cur.close()
             conn.close()
-            return redirect(url_for("project_detail", project_id=project_id))
+            return redirect(url_for("ingestion", project_id=project_id))
 
         elif "save_ocr" in request.form:
             new_text = request.form.get("ocr_text", "")
@@ -915,7 +931,7 @@ def send_message(project_id, chat_id):
 
             # Build retrieval context
             context = "\n\n".join(
-                f"Document: {d['title']}\nSummary: {d.get('summary', '')}\nText: {d.get('ocr_text','')[:1000]}"
+                f"Document: {d['title']}\nSummary: {d.get('summary', '')}\nText: {d.get('ocr_text','')[:6000]}"
                 for d in top_docs
             )
 

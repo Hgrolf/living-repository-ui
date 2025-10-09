@@ -161,7 +161,7 @@
             </div>
           </div>
 
-          <input id="docTitle" name="title" class="input" placeholder="Document title" required />
+          <input id="docTitle" name="title" class="input" placeholder="Document title"/>
           <textarea id="docDescription" name="description" class="input" placeholder="Optional description"></textarea>
           <select id="docPrivacy" name="privacy" class="select" required>
             <option value="public" selected>Public</option>
@@ -234,19 +234,20 @@
 
   <!-- JS -->
   <script>
-    const PROJECT_ID = "{{ project_id }}"; // must be top
+    const PROJECT_ID = "{{ project_id }}";
     const screens = document.querySelectorAll('.screen');
     const steps = document.querySelectorAll('.ingest-step');
     const docList = document.getElementById('docList');
+    const uploadForm = document.getElementById('uploadForm');
     const fileInput = document.getElementById('fileInput');
     const browseBtn = document.getElementById('browseBtn');
     const filePicked = document.getElementById('filePicked');
-    const uploadForm = document.getElementById('uploadForm');
-    const dropzone = document.getElementById('dropzone');
     const docTitle = document.getElementById('docTitle');
+    const docDescription = document.getElementById('docDescription');
+    const dropzone = document.getElementById('dropzone');
     let selectedFiles = [];
 
-    // Search and filter elements
+    // Search + filters
     const docSearch = document.getElementById('docSearch');
     const filterTags = document.getElementById('filterTags');
     const filterAuthor = document.getElementById('filterAuthor');
@@ -262,7 +263,6 @@
 
     document.getElementById('year').textContent = new Date().getFullYear();
 
-    //Initalise document cards array
     function initialiseDocCards() {
       allDocCards = Array.from(document.querySelectorAll('.doc-card'));
     }
@@ -280,23 +280,24 @@
     //functions for when ingesting a file auto inputs the filename as the document title field
 
     function filenameToTitle(name) {
-      const noPath = name.split('\\').pop().split('/').pop();
-      const withoutExt = noPath.replace(/\.[^/.]+$/, '');
-      return withoutExt.replace(/[_-]+/g, ' ').trim();
+      return name
+        .replace(/\.[^/.]+$/, '')
+        .replace(/[_-]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .replace(/\b\w/g, c => c.toUpperCase())
+        .trim();
     }
 
+    // ---------------------------
+// Handle files selected
+// ---------------------------
     function handleFiles(files) {
-      if (!files || files.length === 0) {
-        return;
-      }
-      const file = files[0];
-      const displayName = file.name;
-      filePicked.hidden = false;
-      filePicked.textContent = displayName;
-
-      if (!docTitle.value || docTitle.value.trim() === '') {
-        docTitle.value = filenameToTitle(displayName);
-      }
+      selectedFiles = Array.from(files);
+      selectedFiles.forEach(f => {
+        f.customTitle = filenameToTitle(f.name);
+        f.description = "";
+      });
+      renderPicked(selectedFiles);
     }
 
     // Navigation
@@ -307,14 +308,9 @@
     document.getElementById('toMetadata')?.addEventListener('click', () => goToScreen('metadata'));
 
     // File input
-    browseBtn.addEventListener('click', () => fileInput.click());
-    fileInput.addEventListener('change', () => {
-      if (fileInput.files.length > 0) {
-        handleFiles(fileInput.files);
-        filePicked.hidden = false;
-        filePicked.textContent = `Selected file: ${fileInput.files[0].name}`;
-      } else { filePicked.hidden = true; }
-    });
+    // Browse button + input
+    browseBtn?.addEventListener('click', () => fileInput.click());
+    fileInput?.addEventListener('change', e => handleFiles(e.target.files));
 
     // Enhanced Search and Filter Functions
     function performSearch() {
@@ -515,7 +511,7 @@
     }
     attachProcessButtons();
 
-    // Upload form - multi-file with titles and shared metadata
+    // --- MULTI-FILE AJAX UPLOAD ---
     uploadForm.addEventListener('submit', async e => {
       e.preventDefault();
 
@@ -530,19 +526,23 @@
 
       const formData = new FormData();
 
-      // append each file
+      // Append each file
       for (const file of selectedFiles) {
         formData.append("file", file);
       }
 
-      // append each corresponding title
+      // Collect all per-file titles and descriptions
       const titleInputs = document.querySelectorAll('input[name="titles[]"]');
+      const descInputs = document.querySelectorAll('textarea[name="descriptions[]"]');
+
       titleInputs.forEach(input => {
-        formData.append("titles[]", input.value);
+        formData.append("titles[]", input.value.trim());
+      });
+      descInputs.forEach(input => {
+        formData.append("descriptions[]", input.value.trim());
       });
 
-      // append the shared metadata
-      formData.append("description", document.getElementById("docDescription").value);
+      // Shared metadata
       formData.append("privacy", document.getElementById("docPrivacy").value);
 
       try {
@@ -560,6 +560,7 @@
 
         if (data.uploaded && data.uploaded.length) {
           alert(`Uploaded ${data.uploaded.length} file(s) successfully!`);
+
           data.uploaded.forEach(doc => {
             const article = document.createElement("article");
             article.className = "doc-card";
@@ -569,7 +570,6 @@
                   <div class="doc-title">${doc.title}</div>
                   <span class="badge badge-secondary">Pending</span>
                 </div>
-                ${doc.description ? `<p class="text-sm muted" style="margin-top:6px;">${doc.description}</p>` : ""}
               </a>
               <button class="btn btn-sm btn-primary process-btn" data-doc-id="${doc.doc_id}">Process</button>
             `;
@@ -577,7 +577,7 @@
           });
         }
 
-        // Reset form & UI
+        // Reset form
         selectedFiles = [];
         renderPicked();
         uploadForm.reset();
@@ -929,18 +929,23 @@
     });
 
 
+    // ---------------------------
     // Drag & drop zone
-    ['dragenter', 'dragover'].forEach(evt => {
-      dropzone?.addEventListener(evt, (e) => {
-        e.preventDefault(); e.stopPropagation();
-        dropzone.classList.add('dragover');
+    // ---------------------------
+    ['dragenter','dragover'].forEach(evt=>{
+      dropzone?.addEventListener(evt,e=>{
+        e.preventDefault();e.stopPropagation();dropzone.classList.add('dragover');
       });
     });
-    ['dragleave', 'drop'].forEach(evt => {
-      dropzone?.addEventListener(evt, (e) => {
-        e.preventDefault(); e.stopPropagation();
-        dropzone.classList.remove('dragover');
+    ['dragleave','drop'].forEach(evt=>{
+      dropzone?.addEventListener(evt,e=>{
+        e.preventDefault();e.stopPropagation();dropzone.classList.remove('dragover');
       });
+    });
+    dropzone?.addEventListener('drop',e=>{
+      const files=Array.from(e.dataTransfer?.files||[]);
+      if(!files.length)return;
+      handleFiles(files);
     });
 
     browseBtn?.addEventListener('click', () => fileInput.click());
@@ -951,19 +956,7 @@
       syncInput();
     });
 
-    // multidrop
-    dropzone?.addEventListener('drop', (e) => {
-      const files = Array.from(e.dataTransfer?.files || []).filter(f => f.size > 0);
-      if (!files.length) return;
-
-      const dt = new DataTransfer();
-      files.forEach(f => dt.items.add(f));
-      fileInput.files = dt.files;
-
-      selectedFiles = files;
-      renderPicked(selectedFiles);
-      syncInput();
-    });
+    
 
     // Keep the hidden <input type="file"> in sync with selection
     function syncInput() {
@@ -973,6 +966,7 @@
     }
 
 
+    // --- RENDER PICKED FILES ---
     function renderPicked(files) {
       if (Array.isArray(files)) selectedFiles = files;
 
@@ -985,38 +979,53 @@
 
       filePicked.hidden = false;
       filePicked.innerHTML = `
-    <div style="font-weight:600; margin-bottom:6px;">Selected ${selectedFiles.length} file(s)</div>
-    <ul class="file-list">
-      ${selectedFiles.map((f, i) => {
-        const baseName = f.name.replace(/\.[^/.]+$/, ""); // remove extension
-        return `
-          <li class="file-item">
-            <span class="file-name">${escapeHtml(f.name)}</span>
-            <input type="text" name="titles[]" value="${escapeHtml(baseName)}" class="file-title-input" placeholder="Title">
-            <button type="button" class="file-remove" data-index="${i}" aria-label="Remove">×</button>
-          </li>
-        `;
-      }).join('')}
-    </ul>
-  `;
+        <div style="font-weight:600; margin-bottom:6px;">Selected ${selectedFiles.length} file(s)</div>
+        <ul class="file-list">
+          ${selectedFiles.map((f, i) => {
+            const baseName = f.name.replace(/\.[^/.]+$/, ""); // remove extension
+            return `
+              <li class="file-item" style="margin-bottom:10px;">
+                <span class="file-name">${escapeHtml(f.name)}</span>
+                <input type="text" name="titles[]" value="${escapeHtml(baseName)}"
+                      class="file-title-input" placeholder="Title">
+                <textarea name="descriptions[]" class="file-desc-input" placeholder="Description (optional)"
+                          rows="2" style="width:100%; margin-top:5px;"></textarea>
+                <button type="button" class="file-remove" data-index="${i}" aria-label="Remove">×</button>
+              </li>
+            `;
+          }).join('')}
+        </ul>
+      `;
     }
 
-    // Click x to remove a file from the selection
-    filePicked?.addEventListener('click', (e) => {
+    // Remove file
+    filePicked?.addEventListener('click', e => {
       const btn = e.target.closest('.file-remove');
       if (!btn) return;
       const idx = Number(btn.dataset.index);
       if (Number.isNaN(idx)) return;
       selectedFiles.splice(idx, 1);
-      renderPicked();
-      syncInput();
+      renderPicked(selectedFiles);
     });
 
+    // Update title/desc in memory
+    filePicked?.addEventListener('input', e => {
+      const li = e.target.closest('.file-item');
+      if (!li) return;
+      const idx = Number(li.dataset.index);
+      const file = selectedFiles[idx];
+      if (!file) return;
+      if (e.target.classList.contains('file-title-input')) file.customTitle = e.target.value;
+      if (e.target.classList.contains('file-desc-input')) file.description = e.target.value;
+    });
+
+
     function escapeHtml(s) {
-      return String(s).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+      return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
     }
     //Initialise document cards on page load
     initialiseDocCards();
+    attachProcessButtons();
   </script>
 </body>
 
