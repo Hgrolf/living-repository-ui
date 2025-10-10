@@ -14,6 +14,7 @@ import re
 import openpyxl
 import xlrd
 import numpy as np
+import struct
 
 # ------------------ App Setup -----------------------
 app = Flask(__name__)
@@ -530,12 +531,12 @@ def process_document(project_id, doc_id):
     cur = conn.cursor()
 
     try:
-        # --- Fetch document text ---
-        cur.execute("SELECT title, ocr_text FROM Document WHERE doc_id = ?", (doc_id,))
+        # --- Fetch document text and description ---
+        cur.execute("SELECT title, ocr_text, description FROM Document WHERE doc_id = ?", (doc_id,))
         row = cur.fetchone()
         if not row or not row[1]:
             return jsonify({"success": False, "error": "Document has no text"}), 400
-        doc_title, doc_text = row
+        doc_title, doc_text, doc_description = row
 
         # --- Fetch project info ---
         cur.execute("SELECT title, description FROM Project WHERE project_id = ?", (project_id,))
@@ -544,14 +545,19 @@ def process_document(project_id, doc_id):
             return jsonify({"success": False, "error": "Project not found"}), 404
         project_title, project_description = row
 
-        # --- Summarize document with Gemini ---
+        # --- Summarize document with Gemini (truncate prompt if necessary) ---
         model = genai.GenerativeModel("gemini-2.5-flash-lite")
+        MAX_PROMPT_CHARS = 6000
+        prompt_text = doc_text[:MAX_PROMPT_CHARS]
+
         prompt = f"""
         Project: {project_title}
         Project Description: {project_description}
 
+        Document Title: {doc_title}
+        Document Description: {doc_description or "N/A"}
         Document Text:
-        {doc_text[:6000]}
+        {prompt_text}
 
         Task: Write a concise summary (3–5 sentences) relevant to the project.
         """
@@ -568,11 +574,23 @@ def process_document(project_id, doc_id):
         """, (summary, project_id, doc_id))
         cur.execute("UPDATE Document SET status = ? WHERE doc_id = ?", ("Complete", doc_id))
 
-        # --- Generate and store embedding ---
+        # --- Generate embeddings in chunks ---
         embed_model = "text-embedding-004"
-        embed_resp = genai.embed_content(model=embed_model, content=doc_text[:8000], task_type="retrieval_document")
-        embedding = np.array(embed_resp["embedding"], dtype=np.float32)
-        embedding /= np.linalg.norm(embedding)  # normalize for cosine sim
+        MAX_CHUNK_CHARS = 3000  # ~1–2k tokens per embedding request
+
+        def chunk_text(text, chunk_size=MAX_CHUNK_CHARS):
+            return [text[i:i+chunk_size] for i in range(0, len(text), chunk_size)]
+
+        chunks = chunk_text(doc_text, MAX_CHUNK_CHARS)
+        embeddings = []
+        for chunk in chunks:
+            embed_resp = genai.embed_content(model=embed_model, content=chunk, task_type="retrieval_document")
+            vec = np.array(embed_resp["embedding"], dtype=np.float32)
+            embeddings.append(vec)
+
+        # Average the chunk embeddings
+        embedding = np.mean(embeddings, axis=0)
+        embedding /= np.linalg.norm(embedding)
 
         # Convert to binary blob for Azure SQL
         import struct
@@ -912,7 +930,6 @@ def send_message(project_id, chat_id):
             reply = "No processed documents are available for this project yet."
         else:
             # Compute similarities
-            import struct
             sims = []
             docs_data = []
             for doc_id, blob, title, ocr_text, summary in rows:
