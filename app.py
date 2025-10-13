@@ -2,6 +2,7 @@ import os
 import uuid
 import datetime
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash
+import googleapiclient
 from werkzeug.utils import secure_filename
 import pyodbc
 import bcrypt
@@ -15,6 +16,10 @@ import openpyxl
 import xlrd
 import numpy as np
 import struct
+
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+
 
 # ------------------ App Setup -----------------------
 app = Flask(__name__)
@@ -146,6 +151,43 @@ def log_event(user_id, project_id, action, object_type=None, object_id=None, obj
     conn.commit()
     cur.close()
     conn.close()
+
+# ------------------ Google drive stuffs -----------------------
+
+def get_drive():
+    deets = service_account.Credentials.from_service_account_file("creds\\neon-camera-474700-u6-8f63582365c5.json", scopes=["https://www.googleapis.com/auth/drive"])
+    return build('drive', 'v3', credentials=deets)
+
+def extract_folder_id(url):
+    match = re.search(r"/folders/([a-zA-Z0-9_-]+)", url)
+    return match.group(1) if match else None
+
+def list_drive_files(service, folder_id):
+    query = f"'{folder_id}' in parents and trashed = false"
+    results = service.files().list(q=query, fields="files(id, name)").execute()
+    return results.get("files", [])
+
+folder_id = extract_folder_id("https://drive.google.com/drive/folders/1VyIG17SZOVfCx5MzuJOxVH7YgC9FLDC6?usp=drive_link")
+service = get_drive()
+files = list_drive_files(service, folder_id)
+
+
+def download_drive_files(service, file_id, filename):
+    request = service.flies().get_media(fileId=file_id)
+    temp_path = os.path.join(UPLOAD_FOLDER, secure_filename(filename))
+    with open(temp_path, "wb") as f:
+        downloader = googleapiclient.http.MediaIoBaseDownload(f, request)
+        done = False
+        while not done:
+            status, done = downloader.next_chunk()
+    return temp_path
+
+# test stuffs
+#print(f"Files in folder {folder_id}:")
+#for file in files:
+#    print(f"- {file['name']}")
+
+
 
 # ------------------ Routes -----------------------
 @app.route("/")
