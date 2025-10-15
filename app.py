@@ -2,6 +2,7 @@ import os
 import uuid
 import datetime
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash
+import googleapiclient
 from werkzeug.utils import secure_filename
 import pyodbc
 import bcrypt
@@ -15,6 +16,10 @@ import openpyxl
 import xlrd
 import numpy as np
 import struct
+
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+
 
 # ------------------ App Setup -----------------------
 app = Flask(__name__)
@@ -146,6 +151,67 @@ def log_event(user_id, project_id, action, object_type=None, object_id=None, obj
     conn.commit()
     cur.close()
     conn.close()
+
+# ------------------ Google drive stuffs -----------------------
+
+def get_drive():
+    deets = service_account.Credentials.from_service_account_file("..\\creds\\neon-camera-474700-u6-681f1593ca8d.json", scopes=["https://www.googleapis.com/auth/drive"])
+    return build('drive', 'v3', credentials=deets)
+
+def extract_folder_id(url):
+    match = re.search(r"/folders/([a-zA-Z0-9_-]+)", url)
+    return match.group(1) if match else None
+
+def list_drive_files(service, folder_id):
+    query = f"'{folder_id}' in parents and trashed = false"
+    results = service.files().list(q=query, fields="files(id, name)").execute()
+    print(results)
+    return results.get("files", [])
+
+#folder_id = extract_folder_id("https://drive.google.com/drive/folders/1VyIG17SZOVfCx5MzuJOxVH7YgC9FLDC6?usp=drive_link")
+#service = get_drive()
+#files = list_drive_files(service, folder_id)
+
+
+
+
+
+
+def download_drive_files(service, file_id, path):
+    request = service.files().get_media(fileId=file_id)
+    
+    with open(path, "wb") as f:
+        downloader = googleapiclient.http.MediaIoBaseDownload(f, request)
+        done = False
+        while not done:
+            status, done = downloader.next_chunk()
+    return path
+
+# Flask route: /import-drive
+@app.route('/import-drive', methods=['POST'])
+def import_drive():
+    url = request.json.get('url')
+    folder_id = extract_folder_id(url)
+    if not folder_id:
+        return jsonify({'error': 'Invalid Google Drive folder link'}), 400
+
+    service = get_drive()
+    files = list_drive_files(service, folder_id)
+
+    return jsonify({'files': [
+        {'id': f['id'], 'name': f['name']}
+        for f in files
+    ]})
+
+
+
+
+# test stuffs
+#print(f"Files in folder {folder_id}:")
+#for file in files:
+#    print(f"- {file['name']}")
+
+
 
 # ------------------ Routes -----------------------
 @app.route("/")
@@ -641,16 +707,48 @@ def project_upload(project_id):
     descriptions = request.form.getlist("descriptions[]")
     privacy = request.form.get("privacy", "").strip().lower()
     user_id = session["user_id"]
+    drive_ids = request.form.getlist("drive_file_id[]")
+    drive_names = request.form.getlist("drive_file_name[]")
 
     results = []
 
-    if not files or files[0].filename == "":
+    print("drive_ids:", drive_ids)
+    print("drive_names:", drive_names)
+
+
+    if (not files or files[0].filename == "") and (not drive_ids or drive_ids[0] == ""):
         return jsonify({"error": "No files uploaded"}), 400
 
-    for i, file in enumerate(files):
-        filename = secure_filename(file.filename)
-        path = os.path.join(UPLOAD_FOLDER, filename)
-        file.save(path)
+    combined = []
+
+    for file in files:
+        combined.append({
+        "filename": secure_filename(file.filename),
+        "file": file,
+        "from_drive": False
+    })
+
+    for i, file_id in enumerate(drive_ids):
+        name = secure_filename(drive_names[i])
+        combined.append({
+        "filename": name,
+        "file_id": file_id,
+        "from_drive": True
+    })
+
+
+    for i, file in enumerate(combined):
+
+
+        
+        filename = secure_filename(file["filename"])
+        path = os.path.join(UPLOAD_FOLDER, secure_filename(filename))
+
+        if not file["from_drive"]:
+            file["file"].save(path)
+        else:
+            download_drive_files(get_drive(), file["file_id"], path)
+
 
         pytesseract.pytesseract.tesseract_cmd = r"C:\\Program Files\\Tesseract-OCR\\tesseract.exe"
 
@@ -670,7 +768,7 @@ def project_upload(project_id):
             ocr_text = pytesseract.image_to_string(Image.open(path))
         else:
             doc_type = "other"
-            ocr_text = ""
+            ocr_text = "not available"
 
         ocr_text = re.sub(r"\n{2,}", "\n", ocr_text).strip()
 
