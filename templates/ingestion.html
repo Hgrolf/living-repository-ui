@@ -170,6 +170,7 @@
             </div>
             <div style="text-align:center; margin-top:8px;">
               <input id="gdriveLink" name="gdriveLink" class="input" placeholder="https://drive.google.com/drive/folders/..." style="width:60%; max-width:400px;" />
+                <button id="submitDriveLink" type="button" class="btn btn-link" >Import Files</button>
             </div>
           </div>
           <input id="docTitle" name="title" class="input" placeholder="Document title"/>
@@ -256,6 +257,7 @@
     const docTitle = document.getElementById('docTitle');
     const docDescription = document.getElementById('docDescription');
     const dropzone = document.getElementById('dropzone');
+    const gdriveLink = document.getElementById('gdriveLink');
     let selectedFiles = [];
 
     // Search + filters
@@ -539,7 +541,14 @@
 
       // Append each file
       for (const file of selectedFiles) {
-        formData.append("file", file);
+        if(file.fromDrive){
+          formData.append("drive_file_id[]", file.driveID);
+          formData.append("drive_file_name[]", file.name);
+        }
+        else{
+          formData.append("file", file);
+        }
+
       }
 
       // Collect all per-file titles and descriptions
@@ -938,6 +947,41 @@
         dropzone.classList.add('dragover');
       });
     });
+
+
+    //google drive
+
+document.getElementById('submitDriveLink').addEventListener('click', async () => {
+  const url = document.getElementById('gdriveLink').value.trim();
+  if (!url) return;
+
+  const res = await fetch('/import-drive', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url })
+  });
+
+  const data = await res.json();
+
+  if (data.error) {
+    alert(data.error);
+    return;
+  }
+    //printf("AAAAAAAAAAAAA");
+    //printf( files);
+  
+  // Simulate File-like objects with metadata
+  selectedFiles = data.files.map(file => {
+    return {
+      name: file.name,
+      driveID: file.id,
+      fromDrive: true // flag to handle differently during upload
+    };
+  });
+
+  renderPicked(selectedFiles);
+  syncInput();
+});
 
 
     // ---------------------------
