@@ -155,7 +155,7 @@ def log_event(user_id, project_id, action, object_type=None, object_id=None, obj
 # ------------------ Google drive stuffs -----------------------
 
 def get_drive():
-    deets = service_account.Credentials.from_service_account_file("creds\\neon-camera-474700-u6-681f1593ca8d.json", scopes=["https://www.googleapis.com/auth/drive"])
+    deets = service_account.Credentials.from_service_account_file("..\\creds\\neon-camera-474700-u6-681f1593ca8d.json", scopes=["https://www.googleapis.com/auth/drive"])
     return build('drive', 'v3', credentials=deets)
 
 def extract_folder_id(url):
