@@ -203,15 +203,8 @@ def import_drive():
 
 
 
-# test stuffs
-#print(f"Files in folder {folder_id}:")
-#for file in files:
-#    print(f"- {file['name']}")
 
 #----------------USER PROFILE PAGE (View + Edit + Upload Picture)----------------------#
-
-
-
 @app.route("/profile", methods=["GET", "POST"])
 def profile():
     # 1. Ensure user is logged in
@@ -224,12 +217,10 @@ def profile():
 
     # 2. GET: render form with current values
     if request.method == "GET":
-        #print("test1")
         cur.execute(
             "SELECT name, email, role FROM [User] WHERE user_id = ?",
             (user_id,)
         )
-        #print("test2")
         row = cur.fetchone()
         cur.close()
         conn.close()
@@ -244,7 +235,6 @@ def profile():
             current_year      =  __import__("datetime").datetime.utcnow().year
         )
 
-    #print("test4")
     # 3. POST: pull form data
     name     = request.form.get("name", "").strip()
     email    = request.form.get("email", "").strip()
@@ -254,7 +244,6 @@ def profile():
         cur.close()
         conn.close()
         return "Name and email are required!"
-
     # 4. Check for duplicate email (excluding this user)
     cur.execute(
         "SELECT COUNT(*) FROM [User] WHERE email = ? AND user_id <> ?",
@@ -264,14 +253,12 @@ def profile():
         cur.close()
         conn.close()
         return "Email already taken"
-
     # 5. Build and execute UPDATE
     if password:
         hashed = bcrypt.hashpw(
             password.encode("utf-8"),
             bcrypt.gensalt()
         ).decode("utf-8")
-        #print("test5")
         cur.execute(
             """
             UPDATE [User]
@@ -285,15 +272,11 @@ def profile():
             "UPDATE [User] SET name = ?, email = ? WHERE user_id = ?",
             (name, email, user_id)
         )
-
     conn.commit()
     cur.close()
     conn.close()
-
-    #print("test6")
     # 6. Log the update event
     log_event(user_id,None, action="update")
-
     # 7. Confirmation message
     flash("Profile updated successfully!", "success")
     return redirect(url_for("profile"))

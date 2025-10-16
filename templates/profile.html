@@ -168,7 +168,6 @@
       <a href="{{ url_for('logout') }}" class="btn-link">Logout</a>
     </div>
   </nav>
-
   <!-- Flash Messages -->
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
@@ -179,12 +178,10 @@
       </div>
     {% endif %}
   {% endwith %}
-
   <!-- Profile Form -->
   <main>
     <div class="profile-card">
       <h1>My Profile</h1>
-
       <form method="POST" enctype="multipart/form-data">
         <label for="name">Name</label>
         <input type="text" id="name" name="name" value="{{ user.name }}" required>
@@ -205,11 +202,9 @@
       </form>
     </div>
   </main>
-
   <!-- Footer -->
   <footer>
     &copy; {{ current_year }} <strong>Living Repository</strong>
   </footer>
-
 </body>
 </html>
