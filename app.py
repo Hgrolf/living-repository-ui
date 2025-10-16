@@ -208,6 +208,94 @@ def import_drive():
 #for file in files:
 #    print(f"- {file['name']}")
 
+#----------------USER PROFILE PAGE (View + Edit + Upload Picture)----------------------#
+
+
+
+@app.route("/profile", methods=["GET", "POST"])
+def profile():
+    # 1. Ensure user is logged in
+    user_id = session.get("user_id")
+    if not user_id:
+        return redirect(url_for("login"))
+
+    conn = get_db()
+    cur = conn.cursor()
+
+    # 2. GET: render form with current values
+    if request.method == "GET":
+        #print("test1")
+        cur.execute(
+            "SELECT name, email, role FROM [User] WHERE user_id = ?",
+            (user_id,)
+        )
+        #print("test2")
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+
+        if not row:
+            return "User not found", 404
+        #print("test3")
+        name, email, role = row
+        return render_template(
+            "profile.html",
+            user={"name": name, "email": email, "role": role},
+            current_year      =  __import__("datetime").datetime.utcnow().year
+        )
+
+    #print("test4")
+    # 3. POST: pull form data
+    name     = request.form.get("name", "").strip()
+    email    = request.form.get("email", "").strip()
+    password = request.form.get("password", "")
+
+    if not name or not email:
+        cur.close()
+        conn.close()
+        return "Name and email are required!"
+
+    # 4. Check for duplicate email (excluding this user)
+    cur.execute(
+        "SELECT COUNT(*) FROM [User] WHERE email = ? AND user_id <> ?",
+        (email, user_id)
+    )
+    if cur.fetchone()[0] > 0:
+        cur.close()
+        conn.close()
+        return "Email already taken"
+
+    # 5. Build and execute UPDATE
+    if password:
+        hashed = bcrypt.hashpw(
+            password.encode("utf-8"),
+            bcrypt.gensalt()
+        ).decode("utf-8")
+        #print("test5")
+        cur.execute(
+            """
+            UPDATE [User]
+               SET name = ?, email = ?, password_hash = ?
+             WHERE user_id = ?
+            """,
+            (name, email, hashed, user_id)
+        )
+    else:
+        cur.execute(
+            "UPDATE [User] SET name = ?, email = ? WHERE user_id = ?",
+            (name, email, user_id)
+        )
+
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    #print("test6")
+    # 6. Log the update event
+    log_event(user_id,None, action="update")
+
+    # 7. Confirmation message
+    return "Profile updated successfully! <a href='/dashboard'>Back to Dashboard</a>"
 
 
 # ------------------ Routes -----------------------
