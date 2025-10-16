@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>User Profile - Living Repository</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+
+  <!-- Navigation -->
+  <nav class="nav">
+    <div class="logo h3">Living Repository</div>
+    <div>
+      <a href="{{ url_for('dashboard') }}" class="btn btn-link">Dashboard</a>
+      <a href="{{ url_for('logout') }}" class="btn btn-link">Logout</a>
+    </div>
+  </nav>
+
+  <!-- Flash Messages -->
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div class="flash-container">
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }}">{{ message }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  <!-- Profile -->
+  <main class="section profile-container">
+    <h1 class="h2 text-center">My Profile</h1>
+
+
+    <form method="POST" enctype="multipart/form-data" class="profile-form">
+
+      <label for="name">Name</label>
+      <input type="text" id="name" name="name" value="{{ user.name }}" required>
+
+      <label for="email">Email</label>
+      <input type="email" id="email" name="email" value="{{ user.email }}" required>
+
+      <label for="role">Role</label>
+      <input type="text" id="role" name="role" value="{{ user.role }}" readonly>
+
+      <label for="password">New Password (optional)</label>
+      <input type="password" id="password" name="password" placeholder="Enter new password">
+
+      <div class="form-actions">
+        <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">Cancel</a>
+        <button type="submit" class="btn btn-primary">Save Changes</button>
+      </div>
+    </form>
+  </main>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <p>&copy; {{ current_year }} Living Repository</p>
+  </footer>
+
+</body>
+</html>
