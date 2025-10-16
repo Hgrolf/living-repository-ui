@@ -9,7 +9,7 @@
 <body>
 
   <!-- Navigation -->
-  <nav class="nav">
+  <nav class="nav" style="display:flex; justify-content:space-between; align-items:center; padding:var(--space-4) var(--space-6); border-bottom:1px solid var(--border-color);">
     <div class="logo h3">Living Repository</div>
     <div>
       <a href="{{ url_for('dashboard') }}" class="btn btn-link">Dashboard</a>
@@ -17,32 +17,25 @@
     </div>
   </nav>
 
-  <!-- Flash Messages -->
-  {% with messages = get_flashed_messages(with_categories=true) %}
-    {% if messages %}
-      <div class="flash-container">
-        {% for category, message in messages %}
-          <div class="alert alert-{{ category }}">{{ message }}</div>
-        {% endfor %}
-      </div>
-    {% endif %}
-  {% endwith %}
+
 
   <!-- Profile -->
   <main class="section profile-container">
+      <header class="section" style="text-align:center; padding:var(--space-12) var(--space-6); background:var(--surface-1); border-bottom:1px solid var(--border-color);">
+
     <h1 class="h2 text-center">My Profile</h1>
+      </header>
 
-
-    <form method="POST" enctype="multipart/form-data" class="profile-form">
+    <form method="POST" enctype="multipart/form-data" class="profile-form" style="text-align:center; padding:var(--space-8);">
 
       <label for="name">Name</label>
-      <input type="text" id="name" name="name" value="{{ user.name }}" required>
+      <input type="text" id="name" name="name" value="{{ user.name }}" required><br>
 
       <label for="email">Email</label>
-      <input type="email" id="email" name="email" value="{{ user.email }}" required>
+      <input type="email" id="email" name="email" value="{{ user.email }}" required><br>
 
       <label for="role">Role</label>
-      <input type="text" id="role" name="role" value="{{ user.role }}" readonly>
+      <input type="text" id="role" name="role" value="{{ user.role }}" readonly><br>
 
       <label for="password">New Password (optional)</label>
       <input type="password" id="password" name="password" placeholder="Enter new password">
@@ -52,6 +45,25 @@
         <button type="submit" class="btn btn-primary">Save Changes</button>
       </div>
     </form>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div class="flash-container" hidden>
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }}">{{ message }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  <script>
+    document.addEventListener("DOMContentLoaded", function() {
+      const successAlert = document.querySelector(".alert.alert-success");
+      if (successAlert) {
+        alert(successAlert.textContent.trim());
+      }
+    });
+  </script>
   </main>
 
   <!-- Footer -->

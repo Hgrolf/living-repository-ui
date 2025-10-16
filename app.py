@@ -295,7 +295,8 @@ def profile():
     log_event(user_id,None, action="update")
 
     # 7. Confirmation message
-    return "Profile updated successfully! <a href='/dashboard'>Back to Dashboard</a>"
+    flash("Profile updated successfully!", "success")
+    return redirect(url_for("profile"))
 
 
 # ------------------ Routes -----------------------
