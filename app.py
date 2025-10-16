@@ -168,9 +168,6 @@ def list_drive_files(service, folder_id):
     print(results)
     return results.get("files", [])
 
-#folder_id = extract_folder_id("https://drive.google.com/drive/folders/1VyIG17SZOVfCx5MzuJOxVH7YgC9FLDC6?usp=drive_link")
-#service = get_drive()
-#files = list_drive_files(service, folder_id)
 
 
 
