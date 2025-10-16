@@ -301,17 +301,17 @@
         .trim();
     }
 
-    // ---------------------------
-// Handle files selected
-// ---------------------------
-    function handleFiles(files) {
-      selectedFiles = Array.from(files);
-      selectedFiles.forEach(f => {
-        f.customTitle = filenameToTitle(f.name);
-        f.description = "";
-      });
-      renderPicked(selectedFiles);
-    }
+  // ---------------------------
+  // Handle files selected
+  // ---------------------------
+      function handleFiles(files) {
+        selectedFiles = Array.from(files);
+        selectedFiles.forEach(f => {
+          f.customTitle = filenameToTitle(f.name);
+          f.description = "";
+        });
+        renderPicked(selectedFiles);
+      }
 
     // Navigation
     document.getElementById('btnGoUpload').addEventListener('click', () => goToScreen('upload'));
@@ -612,7 +612,6 @@
       }
     });
 
-    // DARCIE ADDED CODE FROM HERE ONWARDS!!!!!!
     //Edit function
     document.addEventListener('click', function (e) {
       // Handle Edit button clicks
@@ -948,9 +947,7 @@
       });
     });
 
-
-    //google drive
-
+//google drive
 document.getElementById('submitDriveLink').addEventListener('click', async () => {
   const url = document.getElementById('gdriveLink').value.trim();
   if (!url) return;
@@ -967,8 +964,6 @@ document.getElementById('submitDriveLink').addEventListener('click', async () =>
     alert(data.error);
     return;
   }
-    //printf("AAAAAAAAAAAAA");
-    //printf( files);
   
   // Simulate File-like objects with metadata
   selectedFiles = data.files.map(file => {

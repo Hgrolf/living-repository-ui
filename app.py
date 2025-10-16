@@ -795,17 +795,12 @@ def project_upload(project_id):
     user_id = session["user_id"]
     drive_ids = request.form.getlist("drive_file_id[]")
     drive_names = request.form.getlist("drive_file_name[]")
-
     results = []
-
-    print("drive_ids:", drive_ids)
-    print("drive_names:", drive_names)
+    combined = []
 
 
     if (not files or files[0].filename == "") and (not drive_ids or drive_ids[0] == ""):
         return jsonify({"error": "No files uploaded"}), 400
-
-    combined = []
 
     for file in files:
         combined.append({
@@ -825,8 +820,6 @@ def project_upload(project_id):
 
     for i, file in enumerate(combined):
 
-
-        
         filename = secure_filename(file["filename"])
         path = os.path.join(UPLOAD_FOLDER, secure_filename(filename))
 
